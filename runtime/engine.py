@@ -2,6 +2,7 @@ import logging
 import asyncio
 from typing import Any, Tuple, Union, Generator, Callable, List
 from runtime.node import SearchNode
+from runtime.costs import CostAggregator
 from core.signals import BranchPoint, ScoreSignal, Effect, Protect, KillBranch, EarlyStop, RecordCosts, ControlSignal, LocalSearch
 
 logger = logging.getLogger(__name__)
@@ -22,12 +23,26 @@ class ExecutionEngine:
         # Root has empty history
         return SearchNode(trace_history=[], depth=0, action_taken="<init>")
 
-    def __init__(self):
-        # Cache: history_hash -> (score, last_signal, is_terminal, final_result)
-        self._cache = {}
-        self._cache = {} # history_hash -> (score, last_signal, is_terminal, final_result)
+    def __init__(self, store=None):
+        """
+        Initialize execution engine.
+        
+        Args:
+            store: Optional StateStore for cache persistence
+        """
+        self.store = store
+        
+        # Load cache from store if available
+        if store and hasattr(store, 'load_cache'):
+            self._cache = store.load_cache()
+        else:
+            self._cache = {}
+        
         self._effect_cache = {} # scope -> effect_key -> result (Scoped Memoization)
         self._current_scope = "global"
+        
+        # Cost tracking
+        self.cost_aggregator = CostAggregator()
 
     def set_scope(self, scope: str):
         """Sets the current caching scope."""
@@ -39,6 +54,14 @@ class ExecutionEngine:
         """Clears the cache for a specific scope."""
         if scope in self._effect_cache:
             del self._effect_cache[scope]
+    
+    def save_cache(self):
+        """
+        Persist execution cache to disk (if store supports it).
+        Call this periodically during long searches to enable resumability.
+        """
+        if self.store and hasattr(self.store, 'save_cache'):
+            self.store.save_cache(self._cache)
 
     def _compute_history_hash(self, history: List[Any]) -> str:
         """
@@ -178,6 +201,13 @@ class ExecutionEngine:
                         return sig
 
                     elif isinstance(sig, RecordCosts):
+                        # Record cost for this node
+                        self.cost_aggregator.record(
+                            node_id=str(node.node_id),
+                            tokens_in=sig.tokens if hasattr(sig, 'tokens') else 0,
+                            tokens_out=0,  # RecordCosts doesn't split in/out
+                            cost_usd=sig.dollars if hasattr(sig, 'dollars') else 0.0
+                        )
                         sig = machine.run(None)
 
                     elif isinstance(sig, BranchPoint):
@@ -409,6 +439,13 @@ class ExecutionEngine:
                     break
                     
                 elif isinstance(signal, RecordCosts):
+                    # Record cost for this node
+                    self.cost_aggregator.record(
+                        node_id=str(node.node_id),
+                        tokens_in=signal.tokens if hasattr(signal, 'tokens') else 0,
+                        tokens_out=0,
+                        cost_usd=signal.dollars if hasattr(signal, 'dollars') else 0.0
+                    )
                     current_history.append(None)
                     signal = advance_generator(None)
                     

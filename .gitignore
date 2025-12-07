@@ -38,3 +38,8 @@ translation_search_tree*
 
 # OS
 .DS_Store
+
+# Data and Results
+data/
+traces/
+results/

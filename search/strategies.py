@@ -29,7 +29,7 @@ class BeamSearch:
         width: The beam width (number of top candidates to keep at each depth).
         max_depth: Maximum depth to search.
     """
-    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, width: int = 3, max_depth: int = 10, diversity_penalty: float = 0.0):
+    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, width: int = 3, max_depth: int = 1000, diversity_penalty: float = 0.0):
         self.store = store
         self.engine = engine
         self.sampler = sampler

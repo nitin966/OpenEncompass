@@ -1,57 +1,112 @@
+"""
+CPS Compiler - Transforms generator functions into resumable state machines.
+
+This module converts Python generator functions into continuation-passing style (CPS)
+state machines that can be:
+- Pickled and resumed from any yield point in O(1) time
+- Branched to explore multiple execution paths
+- Replayed efficiently for tree search and MCTS
+
+Example:
+    @compile
+    def agent():
+        x = yield branchpoint("choice")
+        return x + 1
+    
+    # Creates an AgentMachine subclass that can be:
+    machine = agent()
+    sig = machine.run(None)  # Returns branchpoint signal
+    sig = machine.run(5)      # Consumes input, returns result
+    state = machine.save()    # Serialize to bytes
+    machine.load(state)       # Restore from bytes
+
+Key Limitations:
+    - No closure variable capture (pass as arguments instead)
+    - No tuple unpacking with _ (use named variables)
+    - No await or yield from (not yet supported)
+    
+See docs/CPS_LIMITATIONS.md for details and workarounds.
+"""
+
 import dill
 
 class AgentMachine:
     """
     Base class for compiled state machines.
+    
+    All compiled agents inherit from this class, which provides:
+    - State management (_state, _ctx, _done, _result)
+    - Save/load for checkpointing
+    - Stack for nested agent execution
     """
     def __init__(self):
-        self._state = 0
-        self._ctx = {} # Local variables
-        self._done = False
-        self._result = None
-        self._stack = [] # Call stack for nested agents
+        self._state = 0         # Current state number (which yield point)
+        self._ctx = {}          # Local variables dictionary
+        self._done = False      # Whether execution completed
+        self._result = None     # Final return value
+        self._stack = []        # Call stack for nested agents
+        
+        # Exception handling state
+        self._exception = None      # Current exception being handled
+        self._exception_type = None # Type of current exception
+        self._in_handler = False    # Whether we're in an except handler
 
     def run(self, _input=None):
         """
-        Executes one step of the machine.
-        Returns: (signal, done)
+        Execute one step of the machine.
+        
+        Args:
+            _input: Value to send to the current yield point
+            
+        Returns:
+            Signal object (BranchPoint, ScoreSignal, etc.) or None if done
         """
         raise NotImplementedError
 
     def save(self):
-        """Returns a pickleable state object (bytes)."""
+        """
+        Serialize machine state to bytes.
+        
+        Returns:
+            bytes: Pickled state that can be loaded later
+        """
         return dill.dumps(self)
 
     def load(self, state):
-        """Restores state from bytes."""
+        """
+        Restore machine state from bytes.
+        
+        Args:
+            state: bytes or dict (legacy) to restore from
+        """
         if isinstance(state, bytes):
             loaded = dill.loads(state)
             self.__dict__.update(loaded.__dict__)
         else:
-            # Legacy dict support (if needed)
+            # Legacy dict support
             self._state = state["_state"]
             self._ctx = state["_ctx"]
             self._done = state["_done"]
             self._result = state["_result"]
             self._stack = state.get("_stack", [])
 
+
 import ast
 import inspect
 import textwrap
 from typing import Any, Callable, Dict, Type
 
+
 class CPSCompiler(ast.NodeTransformer):
     """
-    Compiler that transforms generator functions into Continuation-Passing Style (CPS)
-    state machines.
+    AST transformer that compiles generator functions to state machines.
     
-    This allows generator functions to be pickled and resumed from any yield point
-    in O(1) time, enabling true checkpointing and branching.
+    Transforms each yield statement into:
+    1. Save current state
+    2. Return the yielded value
+    3. On next run(), resume from saved state
     
-    The compiler:
-    1. Hoists local variables to `self._ctx`.
-    2. Splits code into blocks at `yield` points.
-    3. Generates a `run()` method with a state dispatcher.
+    Control flow (if/for/while) is handled by emitting explicit state transitions.
     """
     def __init__(self, varnames):
         self.states = {} # state_id -> list of statements
@@ -60,13 +115,10 @@ class CPSCompiler(ast.NodeTransformer):
         self.varnames = set(varnames)
         self.loop_stack = [] # List of dicts: {'head': int, 'after': int (placeholder)}
         self.placeholder_counter = -100
+        self.try_stack = [] # List of dicts: {'handlers': [], 'placeholders': []}
 
     def _flush_state(self, next_state=None):
         # If next_state is provided, we are transitioning.
-        # The transition assignment MUST happen before the return (which is already in current_stmts?)
-        # No, visit_Assign appended Return.
-        # We need to insert state assignment BEFORE the Return.
-        
         if next_state is not None:
             # Find the return statement
             if self.current_stmts and isinstance(self.current_stmts[-1], ast.Return):
@@ -78,6 +130,57 @@ class CPSCompiler(ast.NodeTransformer):
             else:
                 # Just append
                 self.current_stmts.append(ast.parse(f"self._state = {next_state}").body[0])
+        
+        # Wrap in try/except if needed
+        if self.try_stack and self.current_stmts:
+            # Wrap from inside out (top of stack is innermost)
+            for context in reversed(self.try_stack):
+                handlers = []
+                for i, orig_handler in enumerate(context['handlers']):
+                    target_ph = context['placeholders'][i]
+                    
+                    # Create handler body
+                    h_body = []
+                    
+                    # Capture exception if named
+                    if orig_handler.name:
+                        h_body.append(ast.Assign(
+                            targets=[ast.Subscript(
+                                value=ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_ctx', ctx=ast.Load()),
+                                slice=ast.Constant(value=orig_handler.name),
+                                ctx=ast.Store()
+                            )],
+                            value=ast.Name(id=orig_handler.name, ctx=ast.Load())
+                        ))
+                    
+                    # Transition to handler state
+                    h_body.append(ast.Assign(
+                        targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_state', ctx=ast.Store())],
+                        value=ast.Constant(value=target_ph)
+                    ))
+                    
+                    # Return run()
+                    h_body.append(ast.Return(
+                        value=ast.Call(
+                            func=ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='run', ctx=ast.Load()),
+                            args=[ast.Constant(value=None)],
+                            keywords=[]
+                        )
+                    ))
+                    
+                    handlers.append(ast.ExceptHandler(
+                        type=orig_handler.type,
+                        name=orig_handler.name,
+                        body=h_body
+                    ))
+                
+                # Create Try node
+                self.current_stmts = [ast.Try(
+                    body=self.current_stmts,
+                    handlers=handlers,
+                    orelse=[],
+                    finalbody=[]
+                )]
         
         self.states[self.current_state] = self.current_stmts
         self.current_state = next_state if next_state is not None else self.current_state + 1
@@ -237,16 +340,15 @@ class CPSCompiler(ast.NodeTransformer):
         
         # 6. Backpatching
         # Fix Entry
-        entry_stmts = self.states[entry_state]
-        # The last stmt is the If
-        if_node = entry_stmts[-1]
+        # Use if_stmt directly (it's the same object)
+        
         # Fix THEN
-        if_node.body[0].value.value = then_start
+        if_stmt.body[0].value.value = then_start
         # Fix ELSE
         if node.orelse:
-            if_node.orelse[0].value.value = else_start
+            if_stmt.orelse[0].value.value = else_start
         else:
-            if_node.orelse[0].value.value = join_start
+            if_stmt.orelse[0].value.value = join_start
             
         # Fix THEN End (if it has placeholder)
         def patch_jump(state_id, target):
@@ -254,14 +356,101 @@ class CPSCompiler(ast.NodeTransformer):
             if not stmts: return
             # Look for assignment to _state with placeholder
             for stmt in stmts:
-                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
-                    t = stmt.targets[0]
-                    if isinstance(t, ast.Attribute) and t.attr == '_state':
-                        if isinstance(stmt.value, ast.Constant) and stmt.value.value == JOIN_PH:
-                            stmt.value.value = target
+                for node in ast.walk(stmt):
+                    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                        t = node.targets[0]
+                        if isinstance(t, ast.Attribute) and t.attr == '_state':
+                            if isinstance(node.value, ast.Constant) and node.value.value == JOIN_PH:
+                                node.value.value = target
                             
         patch_jump(then_end, join_start)
         patch_jump(else_end, join_start)
+
+    def visit_Try(self, node):
+        # 1. Setup Placeholders for handlers
+        handler_placeholders = []
+        for _ in node.handlers:
+            handler_placeholders.append(self.placeholder_counter)
+            self.placeholder_counter -= 1
+            
+        JOIN_PH = self.placeholder_counter
+        self.placeholder_counter -= 1
+        
+        # 2. Push context
+        self.try_stack.append({
+            'handlers': node.handlers,
+            'placeholders': handler_placeholders
+        })
+        
+        # 3. Visit Body
+        # Note: _flush_state will automatically wrap generated states with try/except
+        # that jumps to the handler placeholders.
+        for stmt in node.body:
+            self.visit(stmt)
+            
+        # 4. Pop context
+        self.try_stack.pop()
+        
+        # 5. Handle Orelse (executed if no exception)
+        if node.orelse:
+            for stmt in node.orelse:
+                self.visit(stmt)
+                
+        # 6. Jump to JOIN
+        # If we fall through body/orelse, we go to JOIN
+        if not (self.current_stmts and isinstance(self.current_stmts[-1], ast.Return)):
+             self.current_stmts.append(ast.Assign(
+                 targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_state', ctx=ast.Store())],
+                 value=ast.Constant(value=JOIN_PH)
+             ))
+             self.current_stmts.append(ast.Return(value=ast.Call(func=ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='run', ctx=ast.Load()), args=[ast.Constant(value=None)], keywords=[])))
+        
+        self._flush_state(None)
+        
+        # 7. Compile Handlers
+        handler_starts = []
+        for i, handler in enumerate(node.handlers):
+            start_state = self.current_state
+            handler_starts.append(start_state)
+            
+            # Visit handler body
+            for stmt in handler.body:
+                self.visit(stmt)
+                
+            # Jump to JOIN
+            if not (self.current_stmts and isinstance(self.current_stmts[-1], ast.Return)):
+                 self.current_stmts.append(ast.Assign(
+                     targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_state', ctx=ast.Store())],
+                     value=ast.Constant(value=JOIN_PH)
+                 ))
+                 self.current_stmts.append(ast.Return(value=ast.Call(func=ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='run', ctx=ast.Load()), args=[ast.Constant(value=None)], keywords=[])))
+            
+            self._flush_state(None)
+            
+        # 8. JOIN State
+        join_start = self.current_state
+        
+        # 9. Backpatching
+        def patch_placeholders(ph, target):
+            found = False
+            for sid, stmts in self.states.items():
+                if not stmts: continue
+                # We need to look DEEP into the statements because they might be wrapped in Try/Except
+                for stmt in stmts:
+                    for node in ast.walk(stmt):
+                        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                            t = node.targets[0]
+                            if isinstance(t, ast.Attribute) and t.attr == '_state':
+                                if isinstance(node.value, ast.Constant) and node.value.value == ph:
+                                    node.value.value = target
+                                    found = True
+
+        # Patch JOIN
+        patch_placeholders(JOIN_PH, join_start)
+        
+        # Patch Handlers
+        for i, ph in enumerate(handler_placeholders):
+            patch_placeholders(ph, handler_starts[i])
 
     def visit_While(self, node):
         # 1. Emit jump to HEAD
@@ -324,21 +513,21 @@ class CPSCompiler(ast.NodeTransformer):
         
         # 5. Backpatching
         # Fix HEAD
-        head_stmts = self.states[head_start]
-        if_node = head_stmts[-1]
-        if_node.body[0].value.value = body_start
-        if_node.orelse[0].value.value = after_start
+        # Use if_stmt directly
+        if_stmt.body[0].value.value = body_start
+        if_stmt.orelse[0].value.value = after_start
         
         # Global backpatch for breaks/after
         def patch_placeholders(ph, target):
             for sid, stmts in self.states.items():
                 if not stmts: continue
                 for stmt in stmts:
-                    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
-                        t = stmt.targets[0]
-                        if isinstance(t, ast.Attribute) and t.attr == '_state':
-                            if isinstance(stmt.value, ast.Constant) and stmt.value.value == ph:
-                                stmt.value.value = target
+                    for node in ast.walk(stmt):
+                        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                            t = node.targets[0]
+                            if isinstance(t, ast.Attribute) and t.attr == '_state':
+                                if isinstance(node.value, ast.Constant) and node.value.value == ph:
+                                    node.value.value = target
         
         patch_placeholders(AFTER_PH, after_start)
 
@@ -417,12 +606,13 @@ class CPSCompiler(ast.NodeTransformer):
             ]
         )
         
-        self.current_stmts.append(ast.Try(
+        try_stmt = ast.Try(
             body=try_body,
             handlers=[handler],
             orelse=[],
             finalbody=[]
-        ))
+        )
+        self.current_stmts.append(try_stmt)
         
         self._flush_state(None) # Flush HEAD
         
@@ -448,30 +638,28 @@ class CPSCompiler(ast.NodeTransformer):
         
         # 5. Backpatching
         # Fix HEAD (BODY_PH)
-        head_stmts = self.states[head_start]
-        try_node = head_stmts[-1]
-        if isinstance(try_node, ast.Try):
-            for stmt in try_node.body:
-                if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Constant) and stmt.value.value == BODY_PH:
-                    stmt.value.value = body_start
+        # Use try_stmt directly
+        for stmt in try_stmt.body:
+            if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Constant) and stmt.value.value == BODY_PH:
+                stmt.value.value = body_start
                     
         # Fix AFTER_PH (in handler)
-        if isinstance(try_node, ast.Try):
-            for handler in try_node.handlers:
-                for stmt in handler.body:
-                    if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Constant) and stmt.value.value == AFTER_PH:
-                        stmt.value.value = after_start
+        for handler in try_stmt.handlers:
+            for stmt in handler.body:
+                if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Constant) and stmt.value.value == AFTER_PH:
+                    stmt.value.value = after_start
                         
         # Global backpatch
         def patch_placeholders(ph, target):
             for sid, stmts in self.states.items():
                 if not stmts: continue
                 for stmt in stmts:
-                    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
-                        t = stmt.targets[0]
-                        if isinstance(t, ast.Attribute) and t.attr == '_state':
-                            if isinstance(stmt.value, ast.Constant) and stmt.value.value == ph:
-                                stmt.value.value = target
+                    for node in ast.walk(stmt):
+                        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                            t = node.targets[0]
+                            if isinstance(t, ast.Attribute) and t.attr == '_state':
+                                if isinstance(node.value, ast.Constant) and node.value.value == ph:
+                                    node.value.value = target
         
         patch_placeholders(AFTER_PH, after_start)
 
@@ -550,6 +738,11 @@ class CPSCompiler(ast.NodeTransformer):
             value=ast.Constant(value=True)
         ))
         self.current_stmts.append(ast.Return(value=None))
+
+    def visit_Raise(self, node):
+        new_exc = self.visit(node.exc) if node.exc else None
+        new_cause = self.visit(node.cause) if node.cause else None
+        self.current_stmts.append(ast.Raise(exc=new_exc, cause=new_cause))
 
 def compile_agent(func: Callable) -> Type[AgentMachine]:
     """
@@ -638,6 +831,18 @@ def compile_agent(func: Callable) -> Type[AgentMachine]:
         ast.Assign(
             targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_stack', ctx=ast.Store())],
             value=ast.List(elts=[], ctx=ast.Load())
+        ),
+        ast.Assign(
+            targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_exception', ctx=ast.Store())],
+            value=ast.Constant(value=None)
+        ),
+        ast.Assign(
+            targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_exception_type', ctx=ast.Store())],
+            value=ast.Constant(value=None)
+        ),
+        ast.Assign(
+            targets=[ast.Attribute(value=ast.Name(id='self', ctx=ast.Load()), attr='_in_handler', ctx=ast.Store())],
+            value=ast.Constant(value=False)
         )
     ]
     

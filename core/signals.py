@@ -98,3 +98,13 @@ def choose(options: List[Any], name: str = "choice") -> BranchPoint:
     Helper to create a BranchPoint with explicit options.
     """
     return BranchPoint(name=name, metadata={"options": options})
+
+def record_costs(tokens: int = 0, dollars: float = 0.0) -> RecordCosts:
+    """
+    Helper to create a RecordCosts signal for tracking token usage and costs.
+    
+    Args:
+        tokens: Number of tokens used
+        dollars: Cost in USD
+    """
+    return RecordCosts(tokens=tokens, dollars=dollars)
