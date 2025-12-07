@@ -8,7 +8,17 @@ from core.signals import BranchPoint
 logger = logging.getLogger(__name__)
 
 class BeamSearch:
-    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, width=3, max_depth=10):
+    """
+    Implements Beam Search strategy for exploring the agent's execution tree.
+    
+    Attributes:
+        store: StateStore for saving visited nodes.
+        engine: ExecutionEngine for running the agent.
+        sampler: Async function to generate possible actions for a node.
+        width: The beam width (number of top candidates to keep at each depth).
+        max_depth: Maximum depth to search.
+    """
+    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, width: int = 3, max_depth: int = 10):
         self.store = store
         self.engine = engine
         self.sampler = sampler
@@ -34,7 +44,6 @@ class BeamSearch:
             
             # Parallel Sampling: Get inputs for all nodes in frontier at once
             # We assume sampler is async
-            tasks = [self.sampler(node) for node in frontier if not node.is_terminal]
             
             # Map back results to nodes
             # Note: We need to handle terminal nodes carefully.
@@ -165,3 +174,37 @@ class MCTS:
                 self.values[n.node_id] += rollout_score
 
         return list(self.nodes.values())
+
+class BestOfNSearch:
+    """
+    Global Best-of-N Strategy.
+    Runs the agent N times (using the sampler to make choices) and picks the best result.
+    """
+    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, n: int = 10):
+        self.store = store
+        self.engine = engine
+        self.sampler = sampler
+        self.n = n
+
+    async def search(self, agent_factory: Callable) -> List:
+        import random
+        
+        results = []
+        
+        for _ in range(self.n):
+            # Run one full trajectory
+            node = self.engine.create_root()
+            node, _ = await self.engine.step(agent_factory, node, None)
+            self.store.save_node(node)
+            
+            while not node.is_terminal:
+                possible_inputs = await self.sampler(node)
+                if not possible_inputs:
+                    break
+                action = random.choice(possible_inputs)
+                node, _ = await self.engine.step(agent_factory, node, action)
+                self.store.save_node(node)
+            
+            results.append(node)
+            
+        return results

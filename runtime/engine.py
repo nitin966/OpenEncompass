@@ -7,13 +7,14 @@ logger = logging.getLogger(__name__)
 
 class ExecutionEngine:
     """
-    Core engine for executing EnCompass agents.
+    The core runtime that executes agent programs using a Replay Architecture.
     
-    Handles the replay-based execution model, injecting history into the agent
-    generator and capturing the next signal (BranchPoint or ScoreSignal).
+    It manages the execution of generator-based agents by replaying their history
+    of inputs to reach a specific state, and then injecting new inputs to proceed.
     """
     @staticmethod
     def create_root() -> SearchNode:
+        """Creates the initial root node with an empty history."""
         # Root has empty history
         return SearchNode(trace_history=[], depth=0, action_taken="<init>")
 
@@ -33,13 +34,21 @@ class ExecutionEngine:
         Returns:
             Tuple of (new_child_node, last_signal_received).
         """
+        import json
+        
         # Construct new history
         new_history = list(node.trace_history)
         if input_value is not None:
             new_history.append(input_value)
             
         # Check Cache
-        history_key = tuple(str(x) for x in new_history) # Simple string serialization for key
+        # Use JSON dump for robust serialization of primitive types
+        try:
+            history_key = json.dumps(new_history, sort_keys=True)
+        except TypeError:
+            # Fallback for non-serializable types (though inputs should be serializable)
+            history_key = tuple(str(x) for x in new_history)
+
         if history_key in self._cache:
             current_score, last_signal, is_done, final_result = self._cache[history_key]
         else:
@@ -64,6 +73,8 @@ class ExecutionEngine:
                     # Inject stored input at BranchPoint
                     if isinstance(signal, BranchPoint):
                         signal = gen.send(stored_input)
+                    elif not isinstance(signal, (BranchPoint, ScoreSignal)):
+                         raise TypeError(f"Agent yielded unexpected type: {type(signal)}. Expected BranchPoint or ScoreSignal.")
 
                 # Frontier Phase: Consume trailing scores
                 while isinstance(signal, ScoreSignal):

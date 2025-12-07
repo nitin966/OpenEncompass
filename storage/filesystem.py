@@ -5,7 +5,15 @@ from storage.base import StateStore
 from runtime.node import SearchNode
 
 class FileSystemStore(StateStore):
-    def __init__(self, base_path="encompass_trace"):
+    """
+    A simple file-system based implementation of StateStore.
+    Saves each node as a JSON file in the specified directory.
+    """
+    def __init__(self, base_path: str = "encompass_trace"):
+        """
+        Args:
+            base_path: The directory where trace files will be stored.
+        """
         self.base_path = base_path
         if not os.path.exists(self.base_path):
             os.makedirs(self.base_path)

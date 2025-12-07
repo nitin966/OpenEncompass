@@ -63,5 +63,97 @@ class TestEncompassCore(unittest.IsolatedAsyncioTestCase):
         winning_nodes = [n for n in results if n.is_terminal and n.score == 10.0]
         self.assertTrue(len(winning_nodes) > 0)
 
+    async def test_deep_branching(self):
+        """Test that the engine and search can handle non-trivial depth."""
+        
+        @encompass_agent
+        def deep_agent():
+            # Go deep: 20 steps
+            # Always pick 1 to survive
+            for i in range(20):
+                choice = yield branchpoint(f"step_{i}")
+                if choice != 1:
+                    yield record_score(-1.0)
+                    return "Dead"
+                yield record_score(1.0)
+            return "Alive"
+
+        async def deep_sampler(node):
+            return [0, 1]
+
+        # Use Beam Search to find the single valid path
+        beam = BeamSearch(self.store, self.engine, deep_sampler, width=2, max_depth=25)
+        results = await beam.search(deep_agent)
+        
+        survivors = [n for n in results if n.is_terminal and n.metadata.get('result') == "Alive"]
+        self.assertEqual(len(survivors), 1)
+        self.assertEqual(survivors[0].score, 20.0)
+
+    async def test_mcts_noisy_preference(self):
+        """
+        Test that MCTS prefers a higher-reward branch in a noisy environment.
+        
+        Scenario:
+        - Branch A: 50% chance of 100, 50% chance of 0 (Avg 50)
+        - Branch B: Always 10 (Avg 10)
+        
+        MCTS should eventually prefer Branch A despite the risk.
+        """
+        import random
+        
+        @encompass_agent
+        def noisy_agent():
+            choice = yield branchpoint("root")
+            
+            if choice == "A":
+                # Simulate noise via a second hidden branchpoint or just stochastic score?
+                # Since our engine is deterministic replay, we must use an input to represent the "noise outcome".
+                # Let's say the environment (sampler) determines the outcome.
+                outcome = yield branchpoint("chance_node")
+                if outcome == "win":
+                    yield record_score(100.0)
+                else:
+                    yield record_score(0.0)
+            else:
+                # Branch B
+                yield record_score(10.0)
+            return "Done"
+
+        async def noisy_sampler(node):
+            if node.depth == 0:
+                return ["A", "B"]
+            if node.depth == 1:
+                # If we are in Branch A (action_taken="A"), we have a chance node
+                # To simulate 50/50, the sampler returns both, and MCTS rollouts will pick randomly.
+                # NOTE: In our deterministic engine, "A" leads to a specific node.
+                # The "chance" happens at the NEXT step.
+                return ["win", "lose"]
+            return []
+
+        # We need enough iterations for MCTS to realize A is better on average
+        # Increased iterations and exploration to ensure convergence despite variance
+        mcts = MCTS(self.store, self.engine, noisy_sampler, iterations=1000, exploration_weight=20.0)
+        results = await mcts.search(noisy_agent)
+        
+        # Analyze the root's children visits
+        # Root is the first node. Its children are the nodes for "A" and "B".
+        # We can inspect the MCTS internal state (visits)
+        
+        # Find root
+        root = [n for n in results if n.depth == 0][0]
+        
+        # Find children
+        children = mcts.children.get(root.node_id, [])
+        node_a = next((c for c in children if c.action_taken == "A"), None)
+        node_b = next((c for c in children if c.action_taken == "B"), None)
+        
+        if node_a and node_b:
+            visits_a = mcts.visits.get(node_a.node_id, 0)
+            visits_b = mcts.visits.get(node_b.node_id, 0)
+            
+            # A (Avg 50) should be visited more than B (Avg 10)
+            # print(f"Visits A: {visits_a}, Visits B: {visits_b}")
+            self.assertGreater(visits_a, visits_b)
+
 if __name__ == '__main__':
     unittest.main()

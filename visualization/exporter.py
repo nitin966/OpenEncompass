@@ -1,13 +1,16 @@
 import os
 import json
+from typing import Union, List
+from runtime.node import SearchNode
+
 try:
     from graphviz import Digraph
 except ImportError:
     Digraph = None
 
-def export_to_dot(trace_folder: str, output_filename: str = "search_tree"):
+def export_to_dot(source: Union[str, List[SearchNode]], output_filename: str = "search_tree"):
     """
-    Scans the trace folder and generates a GraphViz DOT file.
+    Generates a GraphViz DOT file from a trace folder or a list of SearchNodes.
     """
     if Digraph is None:
         print("Error: 'graphviz' library not found. Install it via 'pip install graphviz'.")
@@ -17,23 +20,46 @@ def export_to_dot(trace_folder: str, output_filename: str = "search_tree"):
     dot.attr(rankdir='TB')  # Top to Bottom layout
 
     # Load all nodes
-    nodes = {}
-    files = [f for f in os.listdir(trace_folder) if f.endswith('.json')]
+    nodes_data = []
     
-    if not files:
-        print(f"No trace files found in {trace_folder}")
-        return
-
-    print(f"Visualizing {len(files)} nodes...")
-
-    for f in files:
-        path = os.path.join(trace_folder, f)
-        with open(path, 'r') as fd:
-            data = json.load(fd)
-            nodes[data['id']] = data
+    if isinstance(source, str):
+        # Load from folder
+        trace_folder = source
+        if not os.path.exists(trace_folder):
+             print(f"Trace folder {trace_folder} does not exist.")
+             return
+             
+        files = [f for f in os.listdir(trace_folder) if f.endswith('.json')]
+        if not files:
+            print(f"No trace files found in {trace_folder}")
+            return
+        print(f"Visualizing {len(files)} nodes from disk...")
+        
+        for f in files:
+            path = os.path.join(trace_folder, f)
+            with open(path, 'r') as fd:
+                data = json.load(fd)
+                # Normalize to dict with expected keys
+                nodes_data.append(data)
+    else:
+        # Use provided nodes
+        print(f"Visualizing {len(source)} nodes from memory...")
+        for node in source:
+            nodes_data.append({
+                "id": str(node.node_id),
+                "parent": str(node.parent_id) if node.parent_id else None,
+                "score": node.score,
+                "action": node.action_taken,
+                "terminal": node.is_terminal,
+                "meta": node.metadata
+            })
 
     # Build Graph
-    for nid, data in nodes.items():
+    # Map ID to data for easy parent lookup if needed
+    nodes_map = {d['id']: d for d in nodes_data}
+
+    for data in nodes_data:
+        nid = data['id']
         # Label format: "Score: 0.5\nAction: 5"
         label = f"Score: {data['score']:.2f}\nInput: {data['action']}"
         if data['terminal']:
@@ -48,7 +74,7 @@ def export_to_dot(trace_folder: str, output_filename: str = "search_tree"):
 
         # Draw edge from parent
         parent_id = data['parent']
-        if parent_id and parent_id in nodes:
+        if parent_id and parent_id in nodes_map:
             dot.edge(parent_id, nid)
 
     # Render

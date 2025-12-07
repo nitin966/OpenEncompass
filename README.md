@@ -2,7 +2,7 @@
 
 EnCompass is a Python framework for building "Program-in-Control" AI agents. It separates the **workflow logic** (the agent's code) from the **search strategy** (how the agent explores possibilities), allowing for powerful, non-deterministic reasoning without cluttering the business logic.
 
-This implementation achieves parity with the system described in the [Asari AI blog post](https://asari.ai/blog/encompass).
+This implementation implements the core EnCompass ideas (PAN-style replay and search strategies) in a minimal framework, inspired by the system described in the [Asari AI blog post](https://asari.ai/blog/encompass).
 
 ## Features
 
@@ -44,23 +44,28 @@ def my_agent():
 ### 2. Run with Search
 
 ```python
+import asyncio
 from runtime.engine import ExecutionEngine
 from storage.filesystem import FileSystemStore
 from search.strategies import BeamSearch
 
 # Define a sampler (returns possible inputs for a node)
-def sampler(node):
+async def sampler(node):
     return [0, 1]
 
-searcher = BeamSearch(
-    store=FileSystemStore(),
-    engine=ExecutionEngine(),
-    sampler=sampler,
-    width=2
-)
+async def main():
+    searcher = BeamSearch(
+        store=FileSystemStore(),
+        engine=ExecutionEngine(),
+        sampler=sampler,
+        width=2
+    )
 
-results = searcher.search(my_agent)
-print("Top Result:", results[0].metadata['result'])
+    results = await searcher.search(my_agent)
+    print("Top Result:", results[0].metadata['result'])
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## Examples

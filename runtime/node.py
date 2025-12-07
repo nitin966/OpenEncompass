@@ -5,8 +5,17 @@ from uuid import UUID, uuid4
 @dataclass
 class SearchNode:
     """
-    Stores the SEQUENCE of choices made to reach this state.
-    We re-play this sequence to reconstruct the state.
+    Represents a node in the search tree, corresponding to a specific execution path.
+    
+    Attributes:
+        trace_history: List of inputs (choices) made to reach this state.
+        score: Cumulative score of this path.
+        depth: Number of decisions made (length of history).
+        parent_id: UUID of the parent node (None for root).
+        node_id: Unique UUID for this node.
+        is_terminal: True if the agent execution has completed.
+        action_taken: String representation of the last action taken to reach this node.
+        metadata: Arbitrary metadata (e.g., final result, debug info).
     """
     trace_history: List[Any]  # The inputs injected so far
     score: float = 0.0
