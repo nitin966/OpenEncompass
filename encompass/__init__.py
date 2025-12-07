@@ -6,7 +6,7 @@ def branchpoint(name, **kwargs):
 def record_score(value, context=""):
     return ScoreSignal(value, context)
 
-from core.signals import effect
+from core.signals import effect, choose
 
 from core.decorators import encompass_agent
 # Alias for compatibility with paper/docs

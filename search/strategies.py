@@ -1,12 +1,22 @@
 import logging
 import asyncio
 from typing import List, Callable, Any
+
+Sampler = Callable[[Any, Any], Any]
 from runtime.engine import ExecutionEngine
 from runtime.node import SearchNode
 from storage.base import StateStore
 from core.signals import BranchPoint, ScoreSignal
 
 logger = logging.getLogger(__name__)
+
+from abc import ABC, abstractmethod
+
+class SearchStrategy(ABC):
+    """Base class for search strategies."""
+    @abstractmethod
+    async def search(self, agent_factory: Callable) -> List[SearchNode]:
+        pass
 
 class BeamSearch:
     """
@@ -31,7 +41,8 @@ class BeamSearch:
         root = self.engine.create_root()
         # Initial step to get first signal
         root, signal = await self.engine.step(agent_factory, root, None)
-        self.store.save_node(root)
+        if self.store:
+            self.store.save_node(root)
         
         # Frontier is list of (node, signal) tuples
         frontier = [(root, signal)]
@@ -64,7 +75,8 @@ class BeamSearch:
             for (node, _), inputs in zip(active_items, inputs_list):
                 for inp in inputs:
                     child, new_signal = await self.engine.step(agent_factory, node, inp)
-                    self.store.save_node(child)
+                    if self.store:
+                        self.store.save_node(child)
                     candidates.append((child, new_signal))
                     self.visited.add(child)
             
@@ -141,7 +153,8 @@ class MCTS:
         # Initialize Root
         root = self.engine.create_root()
         root, signal = await self.engine.step(agent_factory, root, None)
-        self.store.save_node(root)
+        if self.store:
+            self.store.save_node(root)
         
         self.nodes[root.node_id] = root
         self.signals[root.node_id] = signal
@@ -193,7 +206,8 @@ class MCTS:
                 new_children = []
                 for inp in inputs:
                     child, new_signal = await self.engine.step(agent_factory, node, inp)
-                    self.store.save_node(child)
+                    if self.store:
+                        self.store.save_node(child)
                     new_children.append(child)
                     
                     self.nodes[child.node_id] = child
@@ -239,12 +253,14 @@ class MCTS:
         all_nodes.sort(key=lambda n: self.visits.get(n.node_id, 0), reverse=True)
         return all_nodes
 
-class BestOfNSearch:
+class BestOfNSearch(SearchStrategy):
     """
-    Global Best-of-N Strategy.
-    Runs the agent N times (using the sampler to make choices) and picks the best result.
+    Executes a 'Best of N' search strategy.
+    
+    It runs the agent 'n' times (samples) and returns the best result based on the score.
+    This is useful for generating multiple candidates and picking the best one (e.g., translation).
     """
-    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, n: int = 10):
+    def __init__(self, store: StateStore, engine, sampler: Sampler, n: int = 1):
         self.store = store
         self.engine = engine
         self.sampler = sampler
@@ -259,7 +275,8 @@ class BestOfNSearch:
             # Run one full trajectory
             node = self.engine.create_root()
             node, signal = await self.engine.step(agent_factory, node, None)
-            self.store.save_node(node)
+            if self.store:
+                self.store.save_node(node)
             
             while not node.is_terminal:
                 meta = signal.metadata if isinstance(signal, BranchPoint) else {}
@@ -268,7 +285,8 @@ class BestOfNSearch:
                     break
                 action = random.choice(possible_inputs)
                 node, signal = await self.engine.step(agent_factory, node, action)
-                self.store.save_node(node)
+                if self.store:
+                    self.store.save_node(node)
             
             results.append(node)
             
@@ -287,7 +305,8 @@ class BFS:
     async def search(self, agent_factory: Callable) -> List[SearchNode]:
         root = self.engine.create_root()
         root, signal = await self.engine.step(agent_factory, root, None)
-        self.store.save_node(root)
+        if self.store:
+            self.store.save_node(root)
         
         queue = [(root, signal)]
         visited = {root}
@@ -303,7 +322,8 @@ class BFS:
             
             for inp in inputs:
                 child, new_signal = await self.engine.step(agent_factory, node, inp)
-                self.store.save_node(child)
+                if self.store:
+                    self.store.save_node(child)
                 visited.add(child)
                 queue.append((child, new_signal))
                 
@@ -320,7 +340,8 @@ class DFS:
     async def search(self, agent_factory: Callable) -> List[SearchNode]:
         root = self.engine.create_root()
         root, signal = await self.engine.step(agent_factory, root, None)
-        self.store.save_node(root)
+        if self.store:
+            self.store.save_node(root)
         
         stack = [(root, signal)]
         visited = {root}
@@ -337,7 +358,8 @@ class DFS:
             # Reverse inputs to preserve order when popping from stack
             for inp in reversed(inputs):
                 child, new_signal = await self.engine.step(agent_factory, node, inp)
-                self.store.save_node(child)
+                if self.store:
+                    self.store.save_node(child)
                 visited.add(child)
                 stack.append((child, new_signal))
                 
@@ -345,23 +367,27 @@ class DFS:
 
 class BestFirstSearch:
     """Best-First Search using a Priority Queue on scores."""
-    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, max_depth: int = 10, beam_width: int = 1000):
+    def __init__(self, store: StateStore, engine: ExecutionEngine, sampler: Callable, max_depth: int = 10, beam_width: int = 1000, reexpand: bool = False, max_expansions: int = 1):
         self.store = store
         self.engine = engine
         self.sampler = sampler
         self.max_depth = max_depth
         self.beam_width = beam_width # Soft limit to prevent explosion
+        self.reexpand = reexpand
+        self.max_expansions = max_expansions
 
     async def search(self, agent_factory: Callable) -> List[SearchNode]:
         import heapq
         
         root = self.engine.create_root()
         root, signal = await self.engine.step(agent_factory, root, None)
-        self.store.save_node(root)
+        if self.store:
+            self.store.save_node(root)
         
         # Min-heap, so store negative score
         pq = [(-root.score, 0, root, signal)] # (neg_score, tie_breaker, node, signal)
         visited = {root}
+        expansion_counts = {} # node_id -> int
         count = 0
         
         while pq:
@@ -369,17 +395,36 @@ class BestFirstSearch:
             
             if node.is_terminal or node.depth >= self.max_depth:
                 continue
+            
+            # Check expansion limit
+            exp_count = expansion_counts.get(node.node_id, 0)
+            if exp_count >= self.max_expansions:
+                continue
+            
+            expansion_counts[node.node_id] = exp_count + 1
                 
             meta = signal.metadata if isinstance(signal, BranchPoint) else {}
             inputs = await self.sampler(node, meta)
             
             for inp in inputs:
                 child, new_signal = await self.engine.step(agent_factory, node, inp)
-                self.store.save_node(child)
+                if self.store:
+                    self.store.save_node(child)
                 visited.add(child)
                 
                 count += 1
                 heapq.heappush(pq, (-child.score, count, child, new_signal))
+            
+            # Re-insert node if we want to re-expand later (and haven't hit limit)
+            # But we need a reason to re-expand (e.g. sampler might return new things?)
+            # For now, if reexpand is True, we assume sampler is stochastic or we want to try again.
+            # We should probably lower the priority to avoid immediate re-expansion.
+            if self.reexpand and expansion_counts[node.node_id] < self.max_expansions:
+                count += 1
+                # Penalty for re-expansion? Or just same score?
+                # Let's keep same score for now, relying on tie-breaker (count) to put it later?
+                # No, count is increasing, so it will be later.
+                heapq.heappush(pq, (neg_score, count, node, signal))
                 
             # Prune if too large
             if len(pq) > self.beam_width:

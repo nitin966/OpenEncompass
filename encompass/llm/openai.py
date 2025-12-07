@@ -21,7 +21,7 @@ class OpenAIModel:
         self.model = model
         self.temperature = temperature
 
-    async def generate(self, prompt: str, options: List[str] = None) -> str:
+    async def generate(self, prompt: str, options: List[str] = None, **kwargs) -> str:
         """
         Generates text. If options are provided, forces the model to choose one.
         """
@@ -33,13 +33,17 @@ class OpenAIModel:
             system_prompt = "You are a helpful assistant."
 
         try:
+            # Extract known kwargs for OpenAI
+            stop = kwargs.get("stop")
+            
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=self.temperature
+                temperature=self.temperature,
+                stop=stop
             )
             return response.choices[0].message.content.strip()
         except Exception as e:

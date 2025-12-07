@@ -26,6 +26,7 @@ class SearchNode:
     
     is_terminal: bool = False
     action_taken: str = "root"
+    machine_state: Optional[Dict[str, Any]] = None # Serialized state of the AgentMachine
 
     def __hash__(self):
         return hash(self.node_id)

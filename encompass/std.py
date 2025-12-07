@@ -60,3 +60,25 @@ def protect(func, attempts=3, exceptions=(Exception,)):
     def wrapper(*args, **kwargs):
         return Protect(func=func, args=args, kwargs=kwargs, attempts=attempts, exceptions=exceptions)
     return wrapper
+
+@action
+def calculator(expression: str) -> float:
+    """
+    A simple calculator tool.
+    """
+    try:
+        # Safety: Use simple eval with limited scope, or just eval since it's local
+        # For parity with paper, we assume a safe sandbox.
+        return float(eval(expression, {"__builtins__": None}, {}))
+    except Exception:
+        return None
+
+def local_search(strategy_cls, agent_factory, **kwargs):
+    """
+    Signal to run a nested search.
+    Usage:
+        result = yield local_search(BeamSearch, sub_agent, width=5)
+    """
+    from core.signals import LocalSearch
+    # We pass a factory for the strategy because it needs the engine instance
+    return LocalSearch(strategy_factory=strategy_cls, agent_factory=agent_factory, kwargs=kwargs)

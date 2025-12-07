@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Union, Callable
+from typing import Dict, Any, Union, Callable, List
 
 @dataclass(frozen=True)
 class ControlSignal:
@@ -9,7 +9,9 @@ class ControlSignal:
 @dataclass(frozen=True)
 class BranchPoint(ControlSignal):
     """
-    Signal indicating a point where the agent needs to make a decision.
+    Signal to indicate a branching point in the execution.
+    
+    The engine will use the sampler to choose one of the options.
     
     Attributes:
         name: A unique identifier for this branch point.
@@ -70,8 +72,17 @@ class KillBranch(ControlSignal):
 @dataclass(frozen=True)
 class RecordCosts(ControlSignal):
     """Signal to record resource usage."""
-    tokens: int
-    dollars: float
+    tokens: int = 0
+    dollars: float = 0.0
+
+@dataclass(frozen=True)
+class LocalSearch(ControlSignal):
+    """
+    Signal to run a nested search strategy.
+    """
+    strategy_factory: Callable
+    agent_factory: Callable
+    kwargs: Dict[str, Any] = field(default_factory=dict)
 
 def branchpoint(name: str, **metadata) -> BranchPoint:
     return BranchPoint(name=name, metadata=metadata)
@@ -81,3 +92,9 @@ def record_score(value: float, context: str = "") -> ScoreSignal:
 
 def effect(func: Callable, *args, key: Union[str, None] = None, **kwargs) -> Effect:
     return Effect(func=func, args=args, kwargs=kwargs, key=key)
+
+def choose(options: List[Any], name: str = "choice") -> BranchPoint:
+    """
+    Helper to create a BranchPoint with explicit options.
+    """
+    return BranchPoint(name=name, metadata={"options": options})
