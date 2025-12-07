@@ -10,6 +10,7 @@ EnCompass transforms Python generator functions into resumable state machines, e
 
 **CPS Compilation**:
 - Control flow constructs: if/for/while statements
+- Exception handling: try/except/raise
 - Nested loops with arbitrary depth
 - State persistence via pickling
 - O(1) replay without re-execution
@@ -28,13 +29,13 @@ EnCompass transforms Python generator functions into resumable state machines, e
 **Production Features**:
 - Token and cost tracking
 - Execution cache persistence
-- 18/18 unit tests passing
+- 20/20 unit tests passing
 - Comprehensive error messages and documentation
 
 ## Known Limitations
 
 The CPS compiler does not currently support:
-- Exception handling (try/except/finally)
+- finally blocks
 - Context managers (with statements)
 - List and dictionary comprehensions
 - async/await constructs
@@ -161,7 +162,7 @@ results = await strategy.search(agent)
 - Problems with search depth under 100
 
 **Limitations for production**:
-- No exception handling (try/except)
+- Missing `finally` block support
 - Missing some Python language features
 - Requires careful agent design within constraints
 
@@ -179,7 +180,7 @@ encompass/
 ├── validation/        # Deep search validation tests
 ├── tests/             # Unit and integration tests
 ├── docs/              # Technical documentation
-└── examples/          # Reference implementations
+├── examples/          # Reference implementations
 ```
 
 ## Testing
@@ -189,13 +190,13 @@ pytest tests/ -v
 ```
 
 Test coverage:
-- CPS compiler (control flow, loops, state management)
+- CPS compiler (control flow, loops, exceptions, state management)
 - Search strategies (beam search, MCTS)  
 - Cost tracking and aggregation
 - Cache persistence
 - Safety (replay side-effect handling)
 
-All 18 tests passing.
+All 20 tests passing.
 
 ## Documentation
 
@@ -241,11 +242,11 @@ Inspired by Asari AI's blog post on search-based agent architectures.
 - Search validated to depth 100+ with linear scaling
 - Throughput of 2400+ nodes/second
 - Local execution with Ollama (zero API cost)
-- 18/18 tests passing with no regressions
+- 20/20 tests passing with no regressions
 
 **Known limitations**:
 - Python language support limited to documented subset
-- Exception handling not implemented
+- `finally` blocks not implemented
 - Best suited for problems within documented constraints
 
 **Status**: Research code with industrial implementation quality. Production-ready for suitable applications. Honest documentation of capabilities and limitations.
