@@ -46,7 +46,7 @@ def calculator(expression):
 
 def create_math_agent(problem_text, expected_answer):
     @compile
-    def math_solver():
+    def math_solver(problem, answer):
         # Step 1: Plan
         # We ask for a plan, but for the Oracle demo, we just proceed to steps.
         # The sampler will guide us.
@@ -57,7 +57,7 @@ def create_math_agent(problem_text, expected_answer):
             # BranchPoint for next step
             # Metadata includes the problem to help the Oracle Sampler
             step = yield branchpoint(f"step_{i}", 
-                problem=problem_text,
+                problem=problem,
                 context=f"Current value: {current_val}"
             )
             
@@ -66,19 +66,22 @@ def create_math_agent(problem_text, expected_answer):
                 
             # Extract expression from step (e.g. "Calculate: 1+1")
             if ":" in step:
-                _, expr = step.split(":", 1)
+                parts = step.split(":", 1)
+                expr = parts[1]
                 val = yield calculator(expr.strip())
                 if val is not None:
                     current_val = val
             
             # Check if we hit the answer
-            if current_val == expected_answer:
+            if current_val == answer:
                 yield record_score(1e9)
                 return f"Solved: {current_val}"
         
         yield record_score(0)
         return f"Failed: {current_val}"
-    return math_solver
+    
+    # Return a lambda that creates the agent with the captured arguments
+    return lambda: math_solver(problem_text, expected_answer)
 
 async def solver_sampler(node, metadata=None):
     # Oracle Sampler: Looks up the problem in DATASET and returns the correct next step

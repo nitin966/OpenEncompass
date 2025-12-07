@@ -13,8 +13,6 @@ class TestCPSEngine(unittest.IsolatedAsyncioTestCase):
             
         # Compile it
         AgentClass = compile_agent(my_agent)
-        print(f"DEBUG: AgentClass bases: {AgentClass.__bases__}")
-        print(f"DEBUG: AgentClass dir: {dir(AgentClass)}")
         
         engine = ExecutionEngine()
         root = engine.create_root()
@@ -23,14 +21,22 @@ class TestCPSEngine(unittest.IsolatedAsyncioTestCase):
         node1, sig1 = await engine.step(AgentClass, root)
         self.assertEqual(sig1.name, "step1")
         self.assertIsNotNone(node1.machine_state)
-        self.assertEqual(node1.machine_state['_state'], 1)
+        
+        # Verify state by loading it
+        m = AgentClass()
+        m.load(node1.machine_state)
+        self.assertEqual(m._state, 1)
         
         # Step 2: Resume with input 10
         # Should NOT replay from start, but load state 1 and continue
         node2, sig2 = await engine.step(AgentClass, node1, 10)
         self.assertEqual(sig2.name, "step2")
-        self.assertEqual(node2.machine_state['_state'], 2)
-        self.assertEqual(node2.machine_state['_ctx']['x'], 10)
+        
+        # Verify state by loading it
+        m2 = AgentClass()
+        m2.load(node2.machine_state)
+        self.assertEqual(m2._state, 2)
+        self.assertEqual(m2._ctx['x'], 10)
         
         # Step 3: Resume with input 20
         node3, sig3 = await engine.step(AgentClass, node2, 20)

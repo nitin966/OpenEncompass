@@ -70,14 +70,16 @@ class ExecutionEngine:
         
         # 1. Construct the history to replay
         # The node.trace_history contains [choice_0, effect_res_1, choice_2, ...]
+        # For CPS path, we DON'T add input_value to replay_history because we apply it separately
+        # For legacy generator path, we DO add it
         replay_history = list(node.trace_history)
-        if input_value is not None:
-            replay_history.append(input_value)
-            
+        
         # We will build the *new* history for the child node as we go
         # It starts as a copy of replay_history, but might grow if we encounter NEW effects
         current_history = list(replay_history)
-        
+        if input_value is not None:
+            current_history.append(input_value)
+            
         # Check Cache (Optimization)
         history_key = self._compute_history_hash(current_history)
         # Note: The cache might return a state that is "in the middle" of effects if we cached poorly.
@@ -99,57 +101,31 @@ class ExecutionEngine:
             # --- O(1) REPLAY PATH ---
             machine = agent_instance
             
-            # Load state if available
-            if node.machine_state:
-                machine.load(node.machine_state)
-            
-            # If input provided, we are making a choice.
-            # If input is None, we are starting or continuing auto-execution?
-            # The machine.run() takes input.
-            
-            # DEBUG
-            print(f"DEBUG: Engine step input: {input_value}")
-            
+            # Initialize execution state
             current_score = node.score
-            is_done = False
-            final_result = None
-            last_signal = None
             
-            try:
-                # Run the machine
-                signal = machine.run(input_value)
-                
-                # Check for completion
-                if signal is None and machine._done:
-                    print(f"DEBUG: Machine done. Result: {machine._result}")
-                    raise StopIteration(machine._result)
-                
-                # Auto-execute Effects loop
-                current_score = node.score
-                is_done = False
-                final_result = None
-                last_signal = None
-                
+            # Helper to run machine until next BranchPoint or Done
+            async def advance_machine(val=None):
+                nonlocal current_score
+                sig = machine.run(val)
                 while True:
-                    if signal is None and machine._done:
-                        print(f"DEBUG: Machine done in loop. Result: {machine._result}")
-                        raise StopIteration(machine._result)
+                    if sig is None and machine._done:
+                        return None # Done
                         
-                    if isinstance(signal, ScoreSignal):
-                        current_score += signal.value
-                        signal = machine.run(None)
+                    if isinstance(sig, ScoreSignal):
+                        current_score += sig.value
+                        sig = machine.run(None)
                         
-                    elif isinstance(signal, Effect):
+                    elif isinstance(sig, Effect):
                         # ... (Effect handling logic) ...
-                        # Same logic as before
-                        effect_key = signal.key
+                        effect_key = sig.key
                         if effect_key is None:
                             try:
                                 import json
                                 import hashlib
-                                payload = str(signal.args) + str(signal.kwargs)
+                                payload = str(sig.args) + str(sig.kwargs)
                                 arg_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()
-                                effect_key = f"{signal.func.__module__}.{signal.func.__name__}:{arg_hash}"
+                                effect_key = f"{sig.func.__module__}.{sig.func.__name__}:{arg_hash}"
                             except Exception:
                                 effect_key = None
                         
@@ -160,97 +136,137 @@ class ExecutionEngine:
                         if effect_key and effect_key in scope_cache:
                             result = scope_cache[effect_key]
                         else:
-                            if asyncio.iscoroutinefunction(signal.func):
-                                 result = await signal.func(*signal.args, **signal.kwargs)
+                            if asyncio.iscoroutinefunction(sig.func):
+                                 result = await sig.func(*sig.args, **sig.kwargs)
                             else:
-                                 result = signal.func(*signal.args, **signal.kwargs)
+                                 result = sig.func(*sig.args, **sig.kwargs)
                             if effect_key:
                                 scope_cache[effect_key] = result
                         
-                        # Feed result back to machine
-                        signal = machine.run(result)
+                        sig = machine.run(result)
                         
-                    elif isinstance(signal, Protect):
-                         # ... (Protect logic) ...
-                         attempts = signal.attempts
+                    elif isinstance(sig, Protect):
+                         attempts = sig.attempts
                          last_exc = None
                          result = None
                          success = False
                          for _ in range(attempts):
                              try:
-                                 if asyncio.iscoroutinefunction(signal.func):
-                                     result = await signal.func(*signal.args, **signal.kwargs)
+                                 if asyncio.iscoroutinefunction(sig.func):
+                                     result = await sig.func(*sig.args, **sig.kwargs)
                                  else:
-                                     result = signal.func(*signal.args, **signal.kwargs)
+                                     result = sig.func(*sig.args, **sig.kwargs)
                                  success = True
                                  break
-                             except signal.exceptions as e:
+                             except sig.exceptions as e:
                                  last_exc = e
                                  continue
                          if not success:
                              raise last_exc
-                         signal = machine.run(result)
+                         sig = machine.run(result)
 
-                    elif isinstance(signal, KillBranch):
+                    elif isinstance(sig, KillBranch):
                         current_score = -1e9
-                        is_done = True
-                        break
-                        
-                    elif isinstance(signal, EarlyStop):
+                        # Force done
+                        return sig # Treat as done (will check machine._done? No, KillBranch stops execution)
+                        # We should probably return a special signal or set flag?
+                        # Let's set machine._done = True manually? No.
+                        # We break and return KillBranch signal?
+
+                    elif isinstance(sig, EarlyStop):
                         current_score = 1e9
-                        is_done = True
-                        break
+                        return sig
+
+                    elif isinstance(sig, RecordCosts):
+                        sig = machine.run(None)
+
+                    elif isinstance(sig, BranchPoint):
+                        return sig
                         
-                    elif isinstance(signal, RecordCosts):
-                        signal = machine.run(None)
-                        
-                    elif isinstance(signal, BranchPoint):
-                        last_signal = signal
-                        break
-                    
-                    elif isinstance(signal, LocalSearch):
-                        # Execute the local search strategy
-                        # We need to instantiate the strategy
-                        strategy_cls = signal.strategy_factory
-                        sub_agent = signal.agent_factory
-                        kwargs = signal.kwargs
-                        
-                        # We need a sampler. If not provided, use dummy?
-                        # Or maybe the strategy doesn't need one if it's DFS?
-                        # Let's assume kwargs has everything needed except engine/store.
-                        
-                        # We use a temporary MemoryStore or None
-                        # Ideally we should share the store, but engine doesn't have reference to it.
-                        # For now, pass None.
+                    elif isinstance(sig, LocalSearch):
+                        # ... (LocalSearch logic) ...
+                        strategy_cls = sig.strategy_factory
+                        sub_agent = sig.agent_factory
+                        kwargs = sig.kwargs
                         strategy = strategy_cls(None, self, **kwargs)
-                        
-                        # Run search
-                        # This is async
                         results = await strategy.search(sub_agent)
-                        
-                        # Return best result
-                        # results is list of SearchNode
                         if results:
-                            # Prefer terminal nodes
                             terminals = [n for n in results if n.is_terminal]
                             if terminals:
                                 best_result = terminals[0].metadata.get('result')
                             else:
                                 best_result = results[0].metadata.get('result')
-                            
-                            signal = machine.run(best_result)
+                            sig = machine.run(best_result)
                         else:
-                            # Search failed
-                            signal = machine.run(None)
+                            sig = machine.run(None)
 
+                    elif isinstance(sig, AgentMachine):
+                        if hasattr(machine, '_stack'):
+                            machine._stack.append(sig)
+                            sig = machine.run(None)
+                        else:
+                            raise TypeError("AgentMachine does not support nesting (missing _stack).")
+    
                     else:
-                        raise TypeError(f"Unexpected signal type: {type(signal)}")
-                        
-            except StopIteration as e:
-                is_done = True
-                final_result = e.value
+                        raise TypeError(f"Unexpected signal type: {type(sig)}")
+            
+            # --- EXECUTION LOGIC ---
+            is_done = False
+            final_result = None
+            last_signal = None
+            
+            # 1. Restore State
+            if node.machine_state:
+                machine.load(node.machine_state)
+                # We are at the BranchPoint.
+                # The machine is loaded to the state *before* the next BranchPoint is yielded.
+                # So we need to run it once to get the BranchPoint signal.
+                # However, if input_value is None, it means we are just continuing from a loaded state
+                # and expect the next signal to be a BranchPoint.
+                # If input_value is not None, we are making a choice at the loaded BranchPoint.
+                # Let's assume machine.load() puts us *at* the BranchPoint, ready for input.
+                # So, if input_value is None, we are just getting the BranchPoint signal.
+                # If input_value is not None, we are providing the input to the BranchPoint.
+                # This means the machine.run(input_value) will be the first call.
+                # If input_value is None, we need to get the signal.
+                if input_value is None:
+                    last_signal = await advance_machine(None) # Get the BranchPoint signal
+            else:
+                # Replay from start
+                # Run to first BranchPoint
+                last_signal = await advance_machine(None)
                 
-            # Create Child Node with SAVED STATE
+                # Replay history
+                for stored_input in replay_history:
+                    if isinstance(last_signal, BranchPoint):
+                        last_signal = await advance_machine(stored_input)
+                    else:
+                        # Should not happen if history matches execution
+                        # This indicates a mismatch between expected BranchPoint and actual signal
+                        # Or that replay_history contains non-BranchPoint items that were not handled
+                        # by advance_machine (e.g., Effects).
+                        # The advance_machine handles effects internally, so replay_history should only
+                        # contain inputs for BranchPoints.
+                        pass
+            
+            # 2. Apply Input (if provided)
+            if input_value is not None:
+                # We expect to be at a BranchPoint (last_signal)
+                last_signal = await advance_machine(input_value)
+                
+            # Check completion
+            if last_signal is None and machine._done:
+                is_done = True
+                final_result = machine._result
+            elif isinstance(last_signal, (KillBranch, EarlyStop)):
+                is_done = True
+                final_result = None # Or some status?
+            
+            # Update Cache
+            history_key = self._compute_history_hash(node.trace_history + ([input_value] if input_value is not None else []))
+            self._cache[history_key] = (current_score, last_signal, is_done, final_result)
+            
+            # Create Child Node
             child = SearchNode(
                 trace_history=node.trace_history + [input_value] if input_value is not None else [],
                 score=current_score,
@@ -259,12 +275,16 @@ class ExecutionEngine:
                 is_terminal=is_done,
                 action_taken=str(input_value) if input_value is not None else "<auto>",
                 metadata={'result': final_result} if is_done else {},
-                machine_state=machine.save() # O(1) Checkpoint
+                machine_state=machine.save() if not is_done else None # Only save state if not terminal
             )
             return child, last_signal
 
         # --- LEGACY GENERATOR PATH (O(N) Replay) ---
         # We maintain a stack of generators to support nested agents
+        # For this path, we need input_value in replay_history
+        if input_value is not None:
+            replay_history.append(input_value)
+            
         gen_stack = [agent_instance]
         current_gen = gen_stack[-1]
         

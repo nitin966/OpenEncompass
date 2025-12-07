@@ -4,7 +4,7 @@ from core.llm import LanguageModel
 
 def create_translation_agent(llm):
     @compile
-    def translation_agent():
+    def translation_agent(llm_instance):
         # Choose function signature style
         options = ["Standard", "Template", "Trailing Return"]
         choice_idx = yield branchpoint("signature_style")
@@ -34,7 +34,7 @@ def create_translation_agent(llm):
         # 3. Score the solution
         # We use the LLM to score the code
         # Since llm.score is async, we must yield an Effect to let the engine handle it
-        score = yield effect(llm.score, code, "conciseness and modern C++ practices")
+        score = yield effect(llm_instance.score, code, "conciseness and modern C++ practices")
         
         # Boost score for preferred styles (demo logic)
         if style == "Template": score += 0.2
@@ -44,4 +44,5 @@ def create_translation_agent(llm):
         yield record_score(score * 100)
         return code
 
-    return translation_agent
+    # Return a factory that passes the llm instance
+    return lambda: translation_agent(llm)

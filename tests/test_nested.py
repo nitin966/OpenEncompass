@@ -2,19 +2,19 @@ import unittest
 from runtime.engine import ExecutionEngine
 from encompass import compile, branchpoint
 
+@compile
+def sub_agent():
+    choice = yield branchpoint("sub_choice")
+    return choice * 2
+    
+@compile
+def main_agent():
+    val = yield sub_agent()
+    return val + 1
+
 class TestNestedSearch(unittest.IsolatedAsyncioTestCase):
     async def test_nested_agent(self):
         engine = ExecutionEngine()
-        
-        @compile
-        def sub_agent():
-            choice = yield branchpoint("sub_choice")
-            return choice * 2
-            
-        @compile
-        def main_agent():
-            val = yield sub_agent()
-            return val + 1
             
         # Run step 1: Start main, enter sub, hit branchpoint
         root = engine.create_root()
