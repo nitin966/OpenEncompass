@@ -222,16 +222,18 @@ MIT
 ## Citation
 
 ```bibtex
-@software{encompass2024,
+@software{encompass2025,
+  author = {Nitin Kesarwani},
   title = {EnCompass: CPS Compiler for Search-Based LLM Agents},
-  year = {2024},
+  year = {2025},
+  url = {https://asari.ai/blog/enabling-intelligent-search-for-ai-agents},
   note = {Validated with 100\% accuracy on GSM8K and depth 100+ search}
 }
 ```
 
 ## Acknowledgments
 
-Inspired by Asari AI's blog post on search-based agent architectures.
+Inspired by Asari AI's blog post [Enabling intelligent search for AI agents](https://asari.ai/blog/enabling-intelligent-search-for-ai-agents).
 
 ---
 
