@@ -101,9 +101,16 @@ Reproduce the 100% accuracy result on GSM8K:
 python run_benchmark.py --benchmark gsm8k --strategy beam --real-llm --model qwen2.5:32b --width 8
 ```
 
-### Other Benchmarks (ARC, Reflexion)
+To run the **Full GSM8K Test Set** (1319 problems):
+```bash
+# Run all problems (warning: takes a long time)
+python run_benchmark.py --benchmark gsm8k_full --strategy beam --real-llm --model qwen2.5:32b --width 8
 
-Run the newly enabled benchmarks with real LLMs:
+# Run a subset (e.g., first 100)
+python run_benchmark.py --benchmark gsm8k_full --strategy beam --real-llm --model qwen2.5:32b --width 8 --limit 100
+```
+
+### Other Benchmarks (ARC, Reflexion)
 
 ```bash
 # Reflexion (Code Generation + Self-Correction)

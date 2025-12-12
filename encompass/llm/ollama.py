@@ -68,35 +68,45 @@ class OllamaModel:
         if "stop" in kwargs:
             payload["options"]["stop"] = kwargs["stop"]
             
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.base_url}/api/generate",
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        print(f"Ollama Error: {error_text}")
-                        return options[0] if options else ""
-                    
-                    result = await response.json()
-                    text = result.get("response", "").strip()
-                    
-                    # If options provided, try to match response to one
-                    if options:
-                        text_lower = text.lower()
-                        for opt in options:
-                            if opt.lower() in text_lower:
-                                return opt
-                        # Fallback to first option
-                        return options[0]
-                    
-                    return text
-                    
-        except Exception as e:
-            print(f"Ollama request failed: {e}")
-            return options[0] if options else ""
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=120)  # Increased timeout
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            print(f"Ollama Error (Attempt {attempt+1}/{max_retries}): {error_text}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(base_delay * (2 ** attempt))
+                                continue
+                            return options[0] if options else ""
+                        
+                        result = await response.json()
+                        text = result.get("response", "").strip()
+                        
+                        # If options provided, try to match response to one
+                        if options:
+                            text_lower = text.lower()
+                            for opt in options:
+                                if opt.lower() in text_lower:
+                                    return opt
+                            # Fallback to first option
+                            return options[0]
+                        
+                        return text
+                        
+            except Exception as e:
+                print(f"Ollama request failed (Attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                else:
+                    return options[0] if options else ""
     
     async def score(self, text: str, criteria: str) -> float:
         """

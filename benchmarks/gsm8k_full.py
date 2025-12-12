@@ -91,7 +91,8 @@ def load_gsm8k_dataset(split="test", num_samples=None):
         # Download from HuggingFace
         try:
             import urllib.request
-            url = f"https://huggingface.co/datasets/gsm8k/resolve/main/{split}.jsonl"
+            # Correct URL for GSM8K test.jsonl (Official OpenAI GitHub)
+            url = "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl"
             urllib.request.urlretrieve(url, data_file)
             print(f"Downloaded to {data_file}")
         except Exception as e:
