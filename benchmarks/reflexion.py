@@ -60,6 +60,50 @@ async def reflexion_sampler(node, metadata=None):
         return ["I need to fix the logic"]
     return []
 
+def clean_code(text):
+    """Extracts code from markdown blocks or returns raw text."""
+    if "```python" in text:
+        return text.split("```python")[1].split("```")[0].strip()
+    if "```" in text:
+        return text.split("```")[1].split("```")[0].strip()
+    return text.strip()
+
+async def create_reflexion_llm_sampler(llm):
+    """Creates a sampler that uses a real LLM for Reflexion."""
+    async def sampler(node, metadata=None):
+        # Unwrap metadata if nested
+        if metadata and "metadata" in metadata:
+            metadata = metadata["metadata"]
+            
+        if "attempt" in metadata:
+            prompt = (
+                "Write a Python function `twoSum(nums, target)` that returns indices of the two numbers such that they add up to target.\n"
+                "You may assume that each input would have exactly one solution, and you may not use the same element twice.\n"
+                "Return ONLY the Python code inside a markdown block."
+            )
+            response = await llm.generate(prompt)
+            return [clean_code(response)]
+            
+        if "prev_score" in metadata:
+            prompt = (
+                f"You wrote code for Two Sum that achieved a score of {metadata['prev_score']} (0.0 to 1.0).\n"
+                "Reflect on what might be wrong with the logic. Be concise."
+            )
+            response = await llm.generate(prompt)
+            return [response]
+            
+        if "reflection" in metadata:
+            prompt = (
+                f"Your previous attempt failed. Reflection: {metadata['reflection']}\n"
+                "Write FIXED Python code for `twoSum(nums, target)` based on this reflection.\n"
+                "Return ONLY the Python code inside a markdown block."
+            )
+            response = await llm.generate(prompt)
+            return [clean_code(response)]
+            
+        return []
+    return sampler
+
 async def run_benchmark():
     store = FileSystemStore("reflexion_trace")
     engine = ExecutionEngine()

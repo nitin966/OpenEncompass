@@ -9,8 +9,8 @@ from search.strategies import BeamSearch, MCTS, BestOfNSearch, BestFirstSearch, 
 
 # Import benchmarks
 from benchmarks.gsm8k import create_math_agent, solver_sampler, DATASET as GSM8K_DATASET
-from benchmarks.arc_hypothesis import arc_agent, arc_sampler
-from benchmarks.reflexion import reflexion_agent, reflexion_sampler
+from benchmarks.arc_hypothesis import arc_agent, arc_sampler, create_arc_llm_sampler
+from benchmarks.reflexion import reflexion_agent, reflexion_sampler, create_reflexion_llm_sampler
 from benchmarks.run_gsm8k_ollama import create_llm_sampler
 from encompass.llm.ollama import OllamaModel
 
@@ -50,10 +50,21 @@ async def run(args):
             sampler_to_use = llm_sampler if args.real_llm else solver_sampler
             tasks.append((f"gsm8k_{i}", agent_factory, sampler_to_use))
     elif args.benchmark == "arc":
-        # TODO: Add real ARC dataset support
-        tasks.append(("arc_mock", arc_agent, arc_sampler))
+        if args.real_llm:
+            print(f"Initializing real LLM: {args.model} (T={args.temperature})")
+            llm = OllamaModel(model=args.model, temperature=args.temperature)
+            sampler = await create_arc_llm_sampler(llm)
+        else:
+            sampler = arc_sampler
+        tasks.append(("arc_task", arc_agent, sampler))
     elif args.benchmark == "reflexion":
-        tasks.append(("reflexion_mock", reflexion_agent, reflexion_sampler))
+        if args.real_llm:
+            print(f"Initializing real LLM: {args.model} (T={args.temperature})")
+            llm = OllamaModel(model=args.model, temperature=args.temperature)
+            sampler = await create_reflexion_llm_sampler(llm)
+        else:
+            sampler = reflexion_sampler
+        tasks.append(("reflexion_task", reflexion_agent, sampler))
     else:
         raise ValueError(f"Unknown benchmark: {args.benchmark}")
         
@@ -77,7 +88,10 @@ async def run(args):
         results = await strategy.search(agent_factory)
         
         best_node = max(results, key=lambda n: n.score) if results else None
-        solved = "Solved" in str(best_node.metadata) if best_node else False
+        # Check metadata for "Solved" OR high score (>= 100)
+        solved = False
+        if best_node:
+            solved = "Solved" in str(best_node.metadata) or best_node.score >= 100.0
         
         if solved:
             total_solved += 1

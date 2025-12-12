@@ -101,6 +101,18 @@ Reproduce the 100% accuracy result on GSM8K:
 python run_benchmark.py --benchmark gsm8k --strategy beam --real-llm --model qwen2.5:32b --width 8
 ```
 
+### Other Benchmarks (ARC, Reflexion)
+
+Run the newly enabled benchmarks with real LLMs:
+
+```bash
+# Reflexion (Code Generation + Self-Correction)
+python run_benchmark.py --benchmark reflexion --strategy beam --real-llm --model qwen2.5:32b --width 3
+
+# ARC (Hypothesis Search)
+python run_benchmark.py --benchmark arc --strategy beam --real-llm --model qwen2.5:32b --width 3
+```
+
 ### Deep Search Validation
 
 Verify the O(1) state restoration and linear scaling up to depth 100:

@@ -31,20 +31,11 @@ def validate_hypothesis(func_code):
 
 @compile
 def arc_agent():
-    # 1. Hypothesize Rule
-    rule = yield branchpoint("hypothesis", metadata={"options": ["add_1", "mul_2", "square"]})
+    # 1. Generate Hypothesis Code
+    # Metadata provides context for the LLM
+    code = yield branchpoint("generate_code", metadata={"input": TASK_INPUT, "output": TASK_OUTPUT})
     
-    # 2. Generate Code based on rule
-    if rule == "add_1":
-        code = "def transform(x): return x + 1"
-    elif rule == "mul_2":
-        code = "def transform(x): return x * 2"
-    elif rule == "square":
-        code = "def transform(x): return x * x"
-    else:
-        code = "def transform(x): return x"
-        
-    # 3. Validate
+    # 2. Validate
     accuracy = yield validate_hypothesis(code)
     yield record_score(accuracy * 100)
     
@@ -55,9 +46,42 @@ def arc_agent():
     return "Failed"
 
 async def arc_sampler(node, metadata=None):
-    if "options" in metadata:
-        return metadata["options"]
+    # Mock sampler for testing
+    if "input" in metadata:
+        # Returns correct and incorrect code for testing
+        return [
+            "def transform(x): return x * 2",  # Correct
+            "def transform(x): return x + 1"   # Incorrect
+        ]
     return []
+
+def clean_code(text):
+    """Extracts code from markdown blocks or returns raw text."""
+    if "```python" in text:
+        return text.split("```python")[1].split("```")[0].strip()
+    if "```" in text:
+        return text.split("```")[1].split("```")[0].strip()
+    return text.strip()
+
+async def create_arc_llm_sampler(llm):
+    """Creates a sampler that uses a real LLM for ARC."""
+    async def sampler(node, metadata=None):
+        # Unwrap metadata if nested
+        if metadata and "metadata" in metadata:
+            metadata = metadata["metadata"]
+            
+        if "input" in metadata:
+            prompt = (
+                f"Input List: {metadata['input']}\n"
+                f"Output List: {metadata['output']}\n"
+                "Write a Python function `transform(x)` that takes a SINGLE integer `x` from the input list and returns the corresponding integer from the output list.\n"
+                "Example: transform(1) -> 2\n"
+                "Return ONLY the Python code inside a markdown block."
+            )
+            response = await llm.generate(prompt)
+            return [clean_code(response)]
+        return []
+    return sampler
 
 async def run_benchmark():
     store = FileSystemStore("arc_trace")
