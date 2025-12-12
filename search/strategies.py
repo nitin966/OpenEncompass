@@ -67,7 +67,9 @@ class BeamSearch:
             # signal is the LAST signal received. If it's a BranchPoint, it has metadata.
             tasks = []
             for node, signal in active_items:
-                tasks.append(self.sampler(node, signal))
+                # Pass metadata from the signal (BranchPoint)
+                metadata = signal.metadata if isinstance(signal, BranchPoint) else {}
+                tasks.append(self.sampler(node, metadata))
             
             inputs_list = await asyncio.gather(*tasks)
             

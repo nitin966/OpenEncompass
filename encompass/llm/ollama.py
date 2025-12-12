@@ -60,7 +60,7 @@ class OllamaModel:
             "prompt": full_prompt,
             "stream": False,
             "options": {
-                "temperature": self.temperature,
+                "temperature": kwargs.get("temperature", self.temperature),
                 "num_predict": kwargs.get("max_tokens", 512),
             }
         }

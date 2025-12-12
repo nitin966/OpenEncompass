@@ -11,6 +11,8 @@ from search.strategies import BeamSearch, MCTS, BestOfNSearch, BestFirstSearch, 
 from benchmarks.gsm8k import create_math_agent, solver_sampler, DATASET as GSM8K_DATASET
 from benchmarks.arc_hypothesis import arc_agent, arc_sampler
 from benchmarks.reflexion import reflexion_agent, reflexion_sampler
+from benchmarks.run_gsm8k_ollama import create_llm_sampler
+from encompass.llm.ollama import OllamaModel
 
 def get_strategy(name, store, engine, sampler, **kwargs):
     if name == "beam":
@@ -35,9 +37,18 @@ async def run(args):
     # Determine Dataset and Agent Factory
     tasks = []
     if args.benchmark == "gsm8k":
+        # Initialize LLM if requested
+        llm_sampler = None
+        if args.real_llm:
+            print(f"Initializing real LLM: {args.model} (T={args.temperature})")
+            llm = OllamaModel(model=args.model, temperature=args.temperature)
+            llm_sampler = await create_llm_sampler(llm)
+
         for i, item in enumerate(GSM8K_DATASET):
             agent_factory = create_math_agent(item["question"], item["answer"])
-            tasks.append((f"gsm8k_{i}", agent_factory, solver_sampler))
+            # Use real sampler if available, otherwise mock
+            sampler_to_use = llm_sampler if args.real_llm else solver_sampler
+            tasks.append((f"gsm8k_{i}", agent_factory, sampler_to_use))
     elif args.benchmark == "arc":
         # TODO: Add real ARC dataset support
         tasks.append(("arc_mock", arc_agent, arc_sampler))
@@ -98,14 +109,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="EnCompass Benchmark Runner")
     parser.add_argument("--benchmark", type=str, required=True, choices=["gsm8k", "arc", "reflexion"])
     parser.add_argument("--strategy", type=str, required=True, choices=["beam", "mcts", "best_of_n", "bfs", "dfs", "befs"])
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", type=str, help="Output JSONL file")
-    
-    # Strategy params
-    parser.add_argument("--width", type=int, default=3)
-    parser.add_argument("--n", type=int, default=10)
-    parser.add_argument("--iterations", type=int, default=100)
-    parser.add_argument("--diversity", type=float, default=0.0)
+    parser.add_argument("--width", type=int, default=3, help="Beam width")
+    parser.add_argument("--n", type=int, default=10, help="N for Best of N")
+    parser.add_argument("--iterations", type=int, default=100, help="MCTS iterations")
+    parser.add_argument("--diversity", type=float, default=0.0, help="Diversity penalty")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--output", type=str, help="Output file for metrics")
+    parser.add_argument("--real-llm", action="store_true", help="Use real LLM (Ollama) instead of mock sampler")
+    parser.add_argument("--model", type=str, default="mistral", help="Ollama model name (if --real-llm is set)")
+    parser.add_argument("--temperature", type=float, default=0.7, help="LLM temperature (default: 0.7)")
     
     args = parser.parse_args()
     asyncio.run(run(args))

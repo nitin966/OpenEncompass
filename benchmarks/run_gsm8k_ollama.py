@@ -52,13 +52,17 @@ Problem: {problem}
 {context}
 
 What's the next step? Choose ONE:
-- If you need to do a calculation, respond with "Calculate: <expression>" where <expression> is valid Python
+- If you need to do a calculation, respond with "Calculate: <expression>" where <expression> is valid Python.
+  - IMPORTANT: Do NOT include any text, units, or explanations inside the expression. Use ONLY numbers and operators.
+  - Correct: "Calculate: 12 * 52"
+  - Incorrect: "Calculate: 12 * 52 (weeks)"
 - If you're ready to give the final answer, respond with "Final Answer"
 - If you're stuck, respond with "Give up"
 
 Examples:
 - "Calculate: 48 / 2"
 - "Calculate: 100 - 95"
+- "Calculate: 100 - (15 + 30)"  # Explicit subtraction example
 - "Final Answer"
 
 Your response:"""
@@ -69,6 +73,18 @@ Your response:"""
             # Parse response
             response = response.strip()
             
+            # Robust parsing for chatty models (e.g. Llama 3)
+            import re
+            # Look for "Calculate: <expression>"
+            calc_match = re.search(r"Calculate:\s*(.+)", response, re.IGNORECASE)
+            if calc_match:
+                # Extract just the calculation part, stopping at newline if present
+                calc_expr = calc_match.group(1).split('\n')[0].strip()
+                response = f"Calculate: {calc_expr}"
+            elif "Final Answer" in response:
+                response = "Final Answer"
+            elif "Give up" in response:
+                response = "Give up"
             
             # Provide options for the agent
             options = [response]
