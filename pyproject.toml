@@ -1,0 +1,81 @@
+[project]
+name = "encompass"
+version = "0.1.0"
+description = "CPS Compiler for Search-Based LLM Agents"
+requires-python = ">=3.10"
+
+[tool.ruff]
+# Set the maximum line length to 100.
+line-length = 100
+
+# Assume Python 3.10+
+target-version = "py310"
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".pytest_cache",
+    "__pycache__",
+    "data",
+    "traces",
+    "results",
+    ".venv",
+    "venv",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# Enable these rule sets
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade (modern Python idioms)
+    "B",    # flake8-bugbear (common bugs)
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+
+# Ignore specific rules that are too strict for this codebase
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "B008",   # Do not perform function calls in argument defaults
+    "N802",   # Function name should be lowercase (we have some camelCase from Java)
+    "N803",   # Argument name should be lowercase
+    "N806",   # Variable in function should be lowercase
+    "SIM102", # Use a single if statement instead of nested if
+    "SIM108", # Use ternary operator instead of if-else
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Indent with spaces
+indent-style = "space"
+
+# Respect magic trailing commas
+skip-magic-trailing-comma = false
+
+# Automatically detect line endings
+line-ending = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore import violations in __init__.py files
+"__init__.py" = ["F401", "F403"]
+# Ignore some rules in tests
+"tests/**/*.py" = ["N802", "N806"]
+# Ignore some rules in examples (might have different style)
+"examples/**/*.py" = ["N802", "N803", "N806"]
+# Ignore issues in benchmark files (might have specific formatting)
+"benchmarks/**/*.py" = ["N802"]
+
+[tool.ruff.lint.isort]
+# Group imports by type
+known-first-party = ["encompass", "core", "runtime", "search", "storage"]

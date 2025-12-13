@@ -1,15 +1,16 @@
 import asyncio
 import time
-import random
-from encompass import compile, branchpoint, record_score
+
+from encompass import branchpoint, compile, record_score
 from encompass.std import action, early_stop
 from runtime.engine import ExecutionEngine
+from search.strategies import BeamSearch, BestFirstSearch, BestOfNSearch
 from storage.filesystem import FileSystemStore
-from search.strategies import BeamSearch, BestOfNSearch, BestFirstSearch
 
 # Mock ARC Task: Input [1, 2] -> Output [2, 4] (Multiply by 2)
 TASK_INPUT = [1, 2, 3]
 TASK_OUTPUT = [2, 4, 6]
+
 
 @action
 def validate_hypothesis(func_code):
@@ -18,32 +19,35 @@ def validate_hypothesis(func_code):
         # Unsafe exec for demo purposes (in sandbox ideally)
         local_scope = {}
         exec(func_code, {}, local_scope)
-        transform = local_scope.get('transform')
-        if not transform: return 0.0
-        
+        transform = local_scope.get("transform")
+        if not transform:
+            return 0.0
+
         score = 0
-        for i, o in zip(TASK_INPUT, TASK_OUTPUT):
+        for i, o in zip(TASK_INPUT, TASK_OUTPUT, strict=False):
             if transform(i) == o:
                 score += 1
         return score / len(TASK_INPUT)
     except Exception:
         return 0.0
 
+
 @compile
 def arc_agent():
     # 1. Generate Hypothesis Code
     # Metadata provides context for the LLM
     code = branchpoint("generate_code", metadata={"input": TASK_INPUT, "output": TASK_OUTPUT})
-    
+
     # 2. Validate
     accuracy = validate_hypothesis(code)
     record_score(accuracy * 100)
-    
+
     if accuracy == 1.0:
         early_stop()
         return "Solved"
-        
+
     return "Failed"
+
 
 async def arc_sampler(node, metadata=None):
     # Mock sampler for testing
@@ -51,9 +55,10 @@ async def arc_sampler(node, metadata=None):
         # Returns correct and incorrect code for testing
         return [
             "def transform(x): return x * 2",  # Correct
-            "def transform(x): return x + 1"   # Incorrect
+            "def transform(x): return x + 1",  # Incorrect
         ]
     return []
+
 
 def clean_code(text):
     """Extracts code from markdown blocks or returns raw text."""
@@ -63,13 +68,15 @@ def clean_code(text):
         return text.split("```")[1].split("```")[0].strip()
     return text.strip()
 
+
 async def create_arc_llm_sampler(llm):
     """Creates a sampler that uses a real LLM for ARC."""
+
     async def sampler(node, metadata=None):
         # Unwrap metadata if nested
         if metadata and "metadata" in metadata:
             metadata = metadata["metadata"]
-            
+
         if "input" in metadata:
             prompt = (
                 f"Input List: {metadata['input']}\n"
@@ -81,29 +88,35 @@ async def create_arc_llm_sampler(llm):
             response = await llm.generate(prompt)
             return [clean_code(response)]
         return []
+
     return sampler
+
 
 async def run_benchmark():
     store = FileSystemStore("arc_trace")
     engine = ExecutionEngine()
-    
-    print(f"--- ARC Benchmark: Hypothesis Search ---")
-    
+
+    print("--- ARC Benchmark: Hypothesis Search ---")
+
     # 1. Best-of-N (Random Baseline)
     start = time.time()
     bon = BestOfNSearch(store, engine, arc_sampler, n=10)
     results = await bon.search(arc_agent)
     duration = time.time() - start
     best = max(results, key=lambda n: n.score)
-    print(f"Best-of-N:   Time={duration:.4f}s, Best Score={best.score}, Solved={'Solved' in str(best.metadata)}")
-    
+    print(
+        f"Best-of-N:   Time={duration:.4f}s, Best Score={best.score}, Solved={'Solved' in str(best.metadata)}"
+    )
+
     # 2. Beam Search (Guided)
     start = time.time()
     beam = BeamSearch(store, engine, arc_sampler, width=2)
     results = await beam.search(arc_agent)
     duration = time.time() - start
     best = max(results, key=lambda n: n.score)
-    print(f"Beam Search: Time={duration:.4f}s, Best Score={best.score}, Solved={'Solved' in str(best.metadata)}")
+    print(
+        f"Beam Search: Time={duration:.4f}s, Best Score={best.score}, Solved={'Solved' in str(best.metadata)}"
+    )
 
     # 3. Best First Search
     start = time.time()
@@ -111,7 +124,10 @@ async def run_benchmark():
     results = await befs.search(arc_agent)
     duration = time.time() - start
     best = max(results, key=lambda n: n.score)
-    print(f"Best-First:  Time={duration:.4f}s, Best Score={best.score}, Solved={'Solved' in str(best.metadata)}")
+    print(
+        f"Best-First:  Time={duration:.4f}s, Best Score={best.score}, Solved={'Solved' in str(best.metadata)}"
+    )
+
 
 if __name__ == "__main__":
     asyncio.run(run_benchmark())

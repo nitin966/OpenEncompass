@@ -1,1 +1,1 @@
-from .strategies import BeamSearch, MCTS, BestOfNSearch, BFS, DFS, BestFirstSearch
+from .strategies import BFS, DFS, MCTS, BeamSearch, BestFirstSearch, BestOfNSearch

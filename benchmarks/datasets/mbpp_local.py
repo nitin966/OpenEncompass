@@ -1,7 +1,6 @@
 # MBPP-Style Local Dataset - Python Code Generation
 # Curated coding problems for benchmarking
 
-from typing import List
 
 PROBLEMS = [
     {
@@ -12,9 +11,9 @@ PROBLEMS = [
         "test_cases": [
             "assert max_of_three(10, 20, 30) == 30",
             "assert max_of_three(5, 5, 5) == 5",
-            "assert max_of_three(-1, -2, -3) == -1"
+            "assert max_of_three(-1, -2, -3) == -1",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 2,
@@ -24,9 +23,9 @@ PROBLEMS = [
         "test_cases": [
             "assert is_even(4) == True",
             "assert is_even(7) == False",
-            "assert is_even(0) == True"
+            "assert is_even(0) == True",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 3,
@@ -36,9 +35,9 @@ PROBLEMS = [
         "test_cases": [
             "assert reverse_string('hello') == 'olleh'",
             "assert reverse_string('') == ''",
-            "assert reverse_string('a') == 'a'"
+            "assert reverse_string('a') == 'a'",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 4,
@@ -48,9 +47,9 @@ PROBLEMS = [
         "test_cases": [
             "assert factorial(5) == 120",
             "assert factorial(0) == 1",
-            "assert factorial(1) == 1"
+            "assert factorial(1) == 1",
         ],
-        "difficulty": "medium"
+        "difficulty": "medium",
     },
     {
         "id": 5,
@@ -60,9 +59,9 @@ PROBLEMS = [
         "test_cases": [
             "assert sum_list([1, 2, 3, 4]) == 10",
             "assert sum_list([]) == 0",
-            "assert sum_list([-1, 1]) == 0"
+            "assert sum_list([-1, 1]) == 0",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 6,
@@ -72,9 +71,9 @@ PROBLEMS = [
         "test_cases": [
             "assert is_palindrome('racecar') == True",
             "assert is_palindrome('hello') == False",
-            "assert is_palindrome('') == True"
+            "assert is_palindrome('') == True",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 7,
@@ -84,9 +83,9 @@ PROBLEMS = [
         "test_cases": [
             "assert fibonacci(0) == 0",
             "assert fibonacci(1) == 1",
-            "assert fibonacci(6) == 8"
+            "assert fibonacci(6) == 8",
         ],
-        "difficulty": "medium"
+        "difficulty": "medium",
     },
     {
         "id": 8,
@@ -96,9 +95,9 @@ PROBLEMS = [
         "test_cases": [
             "assert count_vowels('hello') == 2",
             "assert count_vowels('xyz') == 0",
-            "assert count_vowels('AEIOU') == 5"
+            "assert count_vowels('AEIOU') == 5",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 9,
@@ -108,9 +107,9 @@ PROBLEMS = [
         "test_cases": [
             "assert sorted(remove_duplicates([1, 2, 2, 3])) == [1, 2, 3]",
             "assert sorted(remove_duplicates([1, 1, 1])) == [1]",
-            "assert remove_duplicates([]) == []"
+            "assert remove_duplicates([]) == []",
         ],
-        "difficulty": "easy"
+        "difficulty": "easy",
     },
     {
         "id": 10,
@@ -120,9 +119,9 @@ PROBLEMS = [
         "test_cases": [
             "assert gcd(48, 18) == 6",
             "assert gcd(7, 5) == 1",
-            "assert gcd(100, 50) == 50"
+            "assert gcd(100, 50) == 50",
         ],
-        "difficulty": "medium"
+        "difficulty": "medium",
     },
     {
         "id": 11,
@@ -132,9 +131,9 @@ PROBLEMS = [
         "test_cases": [
             "assert is_prime(7) == True",
             "assert is_prime(4) == False",
-            "assert is_prime(1) == False"
+            "assert is_prime(1) == False",
         ],
-        "difficulty": "medium"
+        "difficulty": "medium",
     },
     {
         "id": 12,
@@ -144,9 +143,9 @@ PROBLEMS = [
         "test_cases": [
             "assert flatten([1, [2, 3], [4, [5]]]) == [1, 2, 3, 4, 5]",
             "assert flatten([]) == []",
-            "assert flatten([1, 2, 3]) == [1, 2, 3]"
+            "assert flatten([1, 2, 3]) == [1, 2, 3]",
         ],
-        "difficulty": "hard"
+        "difficulty": "hard",
     },
     {
         "id": 13,
@@ -156,9 +155,9 @@ PROBLEMS = [
         "test_cases": [
             "assert merge_sorted([1, 3, 5], [2, 4, 6]) == [1, 2, 3, 4, 5, 6]",
             "assert merge_sorted([], [1, 2]) == [1, 2]",
-            "assert merge_sorted([1], []) == [1]"
+            "assert merge_sorted([1], []) == [1]",
         ],
-        "difficulty": "medium"
+        "difficulty": "medium",
     },
     {
         "id": 14,
@@ -168,9 +167,9 @@ PROBLEMS = [
         "test_cases": [
             "assert mode([1, 2, 2, 3]) == 2",
             "assert mode([1, 1, 1, 2, 2]) == 1",
-            "assert mode([5]) == 5"
+            "assert mode([5]) == 5",
         ],
-        "difficulty": "medium"
+        "difficulty": "medium",
     },
     {
         "id": 15,
@@ -180,43 +179,43 @@ PROBLEMS = [
         "test_cases": [
             "assert rotate_list([1, 2, 3, 4], 2) == [3, 4, 1, 2]",
             "assert rotate_list([1, 2, 3], 0) == [1, 2, 3]",
-            "assert rotate_list([], 5) == []"
+            "assert rotate_list([], 5) == []",
         ],
-        "difficulty": "medium"
-    }
+        "difficulty": "medium",
+    },
 ]
 
 
 def get_problems(num_problems=None, difficulty=None):
     """
     Get problems from the dataset.
-    
+
     Args:
         num_problems: Number of problems to return (None = all)
         difficulty: Filter by difficulty ("easy", "medium", "hard", or None for all)
-    
+
     Returns:
         List of problem dicts
     """
     problems = PROBLEMS
-    
+
     if difficulty:
-        problems = [p for p in problems if p.get('difficulty') == difficulty]
-    
+        problems = [p for p in problems if p.get("difficulty") == difficulty]
+
     if num_problems:
         problems = problems[:num_problems]
-    
+
     return problems
 
 
-def evaluate_code(code: str, test_cases: List[str]) -> tuple:
+def evaluate_code(code: str, test_cases: list[str]) -> tuple:
     """
     Evaluate generated code against test cases.
-    
+
     Args:
         code: Generated Python code
         test_cases: List of assertion strings
-        
+
     Returns:
         (passed: bool, num_passed: int, total: int, error: str or None)
     """
@@ -224,7 +223,7 @@ def evaluate_code(code: str, test_cases: List[str]) -> tuple:
         # Execute the code in a safe namespace
         namespace = {}
         exec(code, namespace)
-        
+
         # Run each test case
         passed = 0
         for test in test_cases:
@@ -235,9 +234,9 @@ def evaluate_code(code: str, test_cases: List[str]) -> tuple:
                 continue
             except Exception as e:
                 return (False, passed, len(test_cases), f"Test error: {e}")
-        
+
         return (passed == len(test_cases), passed, len(test_cases), None)
-        
+
     except SyntaxError as e:
         return (False, 0, len(test_cases), f"Syntax error: {e}")
     except Exception as e:

@@ -1,12 +1,14 @@
-import os
 import asyncio
+import os
 import shutil
-from examples.translation_agent import create_translation_agent
+
 from core.llm import MockLLM
+from examples.translation_agent import create_translation_agent
 from runtime.engine import ExecutionEngine
-from search.strategies import BeamSearch, MCTS
+from search.strategies import MCTS, BeamSearch
 from storage.filesystem import FileSystemStore
 from visualization.exporter import export_to_dot
+
 
 # 1. Define a Sampler (Async)
 async def translation_sampler(node, metadata=None):
@@ -21,6 +23,7 @@ async def translation_sampler(node, metadata=None):
     elif node.depth == 1:
         return [0, 1]
     return []
+
 
 async def main():
     print("--- Running EnCompass Translation Demo ---\n")
@@ -39,13 +42,13 @@ async def main():
     print("[Beam Search]")
     beam = BeamSearch(store, engine, translation_sampler, width=3)
     results_beam = await beam.search(agent)
-    
+
     if results_beam:
         # Sort by score
         results_beam.sort(key=lambda n: n.score, reverse=True)
         top_node = results_beam[0]
         print(f"Top Result (Score {top_node.score}):")
-        print(top_node.metadata.get('result'))
+        print(top_node.metadata.get("result"))
     else:
         print("No results found.")
     print()
@@ -54,12 +57,12 @@ async def main():
     print("[MCTS]")
     mcts = MCTS(store, engine, translation_sampler, iterations=50)
     results_mcts = await mcts.search(agent)
-    
+
     if results_mcts:
         results_mcts.sort(key=lambda n: n.score, reverse=True)
         top_node = results_mcts[0]
         print(f"Top Result (Score {top_node.score}):")
-        print(top_node.metadata.get('result'))
+        print(top_node.metadata.get("result"))
     else:
         print("No results found.")
 
@@ -68,6 +71,7 @@ async def main():
     # Combine nodes from both searches for visualization
     all_nodes = {n.node_id: n for n in results_beam + results_mcts}
     export_to_dot(list(all_nodes.values()), "translation_search_tree")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

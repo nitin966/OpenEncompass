@@ -2,10 +2,9 @@
 Inspect compiled state machine to see what states are generated.
 """
 
+import inspect
 import sys
 from pathlib import Path
-import ast
-import inspect
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -36,53 +35,53 @@ def agent_d15():
 
 def inspect_agent(agent_class, name):
     """Inspect the generated state machine."""
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"INSPECTING: {name}")
-    print(f"{'='*70}\n")
-    
+    print(f"{'=' * 70}\n")
+
     # Create instance
     machine = agent_class()
-    
+
     # Check if it has states attribute
-    if hasattr(machine, 'states') or hasattr(agent_class, 'states'):
+    if hasattr(machine, "states") or hasattr(agent_class, "states"):
         print("❌ No 'states' attribute found")
         print("   State machine structure unclear")
-    
+
     # Try to get the run method source
     try:
         source = inspect.getsource(agent_class.run)
-        lines = source.split('\n')
-        
+        lines = source.split("\n")
+
         # Count state branches
-        state_checks = [l for l in lines if 'self._state ==' in l]
+        state_checks = [line for line in lines if "self._state ==" in line]
         print(f"State branches in run(): {len(state_checks)}")
-        
+
         if len(state_checks) < 20:
-            print(f"\nState checks:")
-            for i, line in enumerate(state_checks[:15]):
+            print("\nState checks:")
+            for _i, line in enumerate(state_checks[:15]):
                 print(f"  {line.strip()}")
             if len(state_checks) > 15:
                 print(f"  ... and {len(state_checks) - 15} more")
         else:
-            print(f"  (Too many to display)")
-            
+            print("  (Too many to display)")
+
         # Look for max state number
         max_state = 0
         for line in lines:
-            if 'self._state ==' in line:
+            if "self._state ==" in line:
                 try:
-                    num = int(line.split('==')[1].split(':')[0].strip())
+                    num = int(line.split("==")[1].split(":")[0].strip())
                     max_state = max(max_state, num)
-                except:
+                except (ValueError, IndexError):
                     pass
-        
+
         print(f"\nMax state number: {max_state}")
-        
+
     except Exception as e:
         print(f"Could not inspect source: {e}")
-    
+
     # Try running it manually to see states
-    print(f"\nManual execution test:")
+    print("\nManual execution test:")
     machine = agent_class()
     for step in range(min(20, 100)):  # Try up to 20 steps
         try:
@@ -100,8 +99,8 @@ def inspect_agent(agent_class, name):
 inspect_agent(agent_d5, "agent_d5 (should work)")
 inspect_agent(agent_d15, "agent_d15 (fails at depth 10)")
 
-print(f"\n{'='*70}")
+print(f"\n{'=' * 70}")
 print("ANALYSIS")
-print(f"{'='*70}")
+print(f"{'=' * 70}")
 print("If agent_d15 stops at step ~10-12, the state machine")
 print("generation is limited, not the search strategy.")
