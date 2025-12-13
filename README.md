@@ -15,13 +15,19 @@ Standard LLM agents execute linearly:
 `State_t -> LLM -> Action -> State_{t+1}`.
 If the LLM errs, the trajectory fails.
 
-EnCompass compiles the agent code:
+EnCompass compiles the agent code with **implicit yields** for cleaner syntax:
 ```python
 @encompass.compile
 def agent():
-    # 'yield' becomes a checkpoint.
+    # Function calls automatically checkpoint execution.
     # The searcher can fork execution here 8 times (width=8).
-    plan = yield branchpoint(options=["Plan A", "Plan B", ...])
+    plan = branchpoint(options=["Plan A", "Plan B", ...])
+    
+    # Actions are also implicitly yielding
+    result = my_action(plan)
+    
+    # Record scores without explicit yield
+    record_score(10)
     ...
 ```
 
@@ -70,6 +76,32 @@ from encompass.search import BestFirstSearch
 strategy = BestFirstSearch(max_nodes=1000)
 results = await strategy.search(agent)
 ```
+
+## Implicit Yield Mechanism
+
+EnCompass features **automatic implicit yields** for cleaner, more intuitive code. Control signals (`branchpoint`, `record_score`), actions (via `@action`), and nested agents automatically checkpoint execution without explicit `yield` keywords.
+
+**Traditional (still supported):**
+```python
+@compile
+def agent():
+    x = yield branchpoint("choice")
+    yield record_score(10)
+    result = yield my_action(x)
+    return result
+```
+
+**Modern (implicit yields):**
+```python
+@compile
+def agent():
+    x = branchpoint("choice")
+    record_score(10)
+    result = my_action(x)
+    return result
+```
+
+The compiler automatically detects `ControlSignal` returns and manages state transitions, making agent code cleaner and more readable while maintaining full checkpointing capabilities.
 
 ## Installation
 
