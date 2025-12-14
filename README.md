@@ -1,6 +1,15 @@
 
 # EnCompass
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+[![GitHub stars](https://img.shields.io/github/stars/nitin966/encompass)](https://github.com/nitin966/encompass/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/nitin966/encompass)](https://github.com/nitin966/encompass/network)
+[![GitHub contributors](https://img.shields.io/github/contributors/nitin966/encompass)](https://github.com/nitin966/encompass/graphs/contributors)
+[![GitHub issues](https://img.shields.io/github/issues/nitin966/encompass)](https://github.com/nitin966/encompass/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/nitin966/encompass)](https://github.com/nitin966/encompass/pulls)
+
 EnCompass is a Python-to-CPS (Continuation-Passing Style) compiler.
 
 It transforms standard Python generator functions into resumable state machines. This allows the program state (local variables, instruction pointer) to be serialized, cloned, and restored.
