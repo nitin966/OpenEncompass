@@ -16,7 +16,7 @@ It transforms standard Python generator functions into resumable state machines.
 
 By treating the program execution as a tree of states, we can apply search algorithms (Beam Search, MCTS) to guide LLM agents, rather than relying on a single greedy sample.
 
-**Status**: 100% pass rate (5/5) on GSM8K mini-eval using `qwen2.5:32b` with Beam Search (width=8).
+**Status**: 73% accuracy on GSM8K (n=100) using `qwen2.5:32b` with Beam Search (width=8).
 
 ## Mechanism
 
@@ -199,11 +199,13 @@ EnCompass supports advanced Python features in agent code:
 
 ## Results
 
-**GSM8K Mini-Eval (5 problems)**
-- **Model**: `qwen2.5:32b`
-- **Strategy**: Beam Search (k=8)
-- **Accuracy**: 100% (5/5)
-- **Baseline**: ~40% (Greedy/Beam k=3 with smaller models)
+**GSM8K Benchmark**
+
+| Configuration | Accuracy | Tasks | Nodes Explored | Duration |
+|---------------|----------|-------|----------------|----------|
+| Beam Search (k=8), qwen2.5:32b | **73%** | 100 | 870 | ~48 min |
+
+Beam Search enables systematic exploration of reasoning paths, improving over single-sample greedy decoding by maintaining multiple candidate solutions at each step.
 
 ## Project Structure
 
@@ -233,7 +235,7 @@ encompass/
   title = {EnCompass: CPS Compiler for Search-Based LLM Agents},
   year = {2025},
   url = {https://github.com/nitin966/encompass},
-  note = {Validated with 100% accuracy on GSM8K and depth 100+ search}
+  note = {Validated on GSM8K benchmark with depth 100+ search support}
 }
 ```
 
