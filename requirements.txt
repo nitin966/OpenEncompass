@@ -1,8 +1,10 @@
 # EnCompass Framework Dependencies
-# Core dependencies (nothing external required for core functionality)
+# Core dependencies
+dill>=0.3.6
 
 # Optional: LLM integrations
 httpx>=0.24.0  # For Ollama HTTP client
 
 # Testing dependencies
 pytest>=7.0.0
+
