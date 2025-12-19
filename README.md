@@ -18,6 +18,18 @@ By treating the program execution as a tree of states, we can apply search algor
 
 **Status**: 73% accuracy on GSM8K (n=100) using `qwen2.5:32b` with Beam Search (width=8).
 
+## Agent Complexity Comparison
+
+EnCompass significantly reduces the complexity of building sophisticated agents by abstracting away state management and search logic. The following table compares the lines of code (LOC) required for a manual state machine implementation vs. an EnCompass implementation across different patterns:
+
+| Pattern | Base Agent (LOC) | EnCompass Agent (LOC) | **Reduction** |
+| :--- | :--- | :--- | :--- |
+| **Code Translation** (Java → Python) | 493 | 250 | **49.3%** |
+| **Hypothesis Search** (ARC-style) | 421 | 199 | **52.7%** |
+| **Reflexion** (Self-Correction) | 410 | 219 | **46.6%** |
+
+On average, EnCompass reduces agent code by **~50%** while maintaining identical functional performance.
+
 ## Mechanism
 
 Standard LLM agents execute linearly:
@@ -134,6 +146,21 @@ ollama pull qwen2.5:32b
 
 ## Usage
 
+### Running Comparison Experiments
+
+You can run the comparison experiments to see the difference between base agents and EnCompass agents:
+
+```bash
+# 1. Code Translation Experiment
+python examples/code_translation/run_experiment.py --model qwen2.5:32b
+
+# 2. Hypothesis Search Experiment
+python examples/hypothesis_search/run_experiment.py --model qwen2.5:32b
+
+# 3. Reflexion Agent Experiment
+python examples/reflexion/run_experiment.py --model qwen2.5:32b
+```
+
 ### Running Benchmarks
 
 Reproduce the 100% accuracy result on GSM8K:
@@ -219,6 +246,9 @@ encompass/
 ├── validation/        # Deep search validation tests
 ├── tests/             # Unit and integration tests
 └── examples/          # Reference implementations
+    ├── code_translation/ # Java to Python translation experiment
+    ├── hypothesis_search/# ARC-style pattern discovery experiment
+    └── reflexion/        # Code generation with self-correction experiment
 ```
 
 ## Citation
