@@ -54,7 +54,7 @@ class BeamSearch:
     async def search(self, agent_factory: Callable) -> list[SearchNode]:
         root = self.engine.create_root()
         # Initial step to get first signal
-        root, signal = await self.engine.step(agent_factory, root, None)
+        root, signal = await self.engine.step(agent_factory, root, self.engine._NO_INPUT)
         if self.store:
             self.store.save_node(root)
 
@@ -176,7 +176,7 @@ class MCTS:
 
         # Initialize Root
         root = self.engine.create_root()
-        root, signal = await self.engine.step(agent_factory, root, None)
+        root, signal = await self.engine.step(agent_factory, root, self.engine._NO_INPUT)
         if self.store:
             self.store.save_node(root)
 
@@ -308,7 +308,7 @@ class BestOfNSearch(SearchStrategy):
         for _ in range(self.n):
             # Run one full trajectory
             node = self.engine.create_root()
-            node, signal = await self.engine.step(agent_factory, node, None)
+            node, signal = await self.engine.step(agent_factory, node, self.engine._NO_INPUT)
             if self.store:
                 self.store.save_node(node)
 
@@ -342,7 +342,7 @@ class BFS:
 
     async def search(self, agent_factory: Callable) -> list[SearchNode]:
         root = self.engine.create_root()
-        root, signal = await self.engine.step(agent_factory, root, None)
+        root, signal = await self.engine.step(agent_factory, root, self.engine._NO_INPUT)
         if self.store:
             self.store.save_node(root)
 
@@ -381,7 +381,7 @@ class DFS:
 
     async def search(self, agent_factory: Callable) -> list[SearchNode]:
         root = self.engine.create_root()
-        root, signal = await self.engine.step(agent_factory, root, None)
+        root, signal = await self.engine.step(agent_factory, root, self.engine._NO_INPUT)
         if self.store:
             self.store.save_node(root)
 
@@ -433,7 +433,7 @@ class BestFirstSearch:
         import heapq
 
         root = self.engine.create_root()
-        root, signal = await self.engine.step(agent_factory, root, None)
+        root, signal = await self.engine.step(agent_factory, root, self.engine._NO_INPUT)
         if self.store:
             self.store.save_node(root)
 

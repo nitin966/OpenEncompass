@@ -95,8 +95,10 @@ class ExecutionEngine:
 
         return hashlib.md5(serialized.encode("utf-8")).hexdigest()
 
+    _NO_INPUT = object()
+
     async def step(
-        self, agent_factory: Callable[[], Generator], node: SearchNode, input_value: Any = None
+        self, agent_factory: Callable[[], Generator], node: SearchNode, input_value: Any = _NO_INPUT
     ) -> tuple[SearchNode, ControlSignal | None]:
         """
         Executes the agent.
@@ -115,7 +117,7 @@ class ExecutionEngine:
         # We will build the *new* history for the child node as we go
         # It starts as a copy of replay_history, but might grow if we encounter NEW effects
         current_history = list(replay_history)
-        if input_value is not None:
+        if input_value is not self._NO_INPUT:
             current_history.append(input_value)
 
         # Check Cache (Optimization)
@@ -142,6 +144,7 @@ class ExecutionEngine:
 
             # Initialize execution state
             current_score = node.score
+            current_metadata = {}  # Capture metadata
 
             # Helper to run machine until next BranchPoint or Done
             async def advance_machine(val=None):
@@ -153,6 +156,8 @@ class ExecutionEngine:
 
                     if isinstance(sig, ScoreSignal):
                         current_score += sig.value
+                        if sig.context:
+                            current_metadata.update(sig.context)
                         sig = machine.run(None)
 
                     elif isinstance(sig, Effect):
@@ -277,7 +282,7 @@ class ExecutionEngine:
                 # If input_value is not None, we are providing the input to the BranchPoint.
                 # This means the machine.run(input_value) will be the first call.
                 # If input_value is None, we need to get the signal.
-                if input_value is None:
+                if input_value is self._NO_INPUT:
                     last_signal = await advance_machine(None)  # Get the BranchPoint signal
             else:
                 # Replay from start
@@ -298,7 +303,7 @@ class ExecutionEngine:
                         pass
 
             # 2. Apply Input (if provided)
-            if input_value is not None:
+            if input_value is not self._NO_INPUT:
                 # We expect to be at a BranchPoint (last_signal)
                 last_signal = await advance_machine(input_value)
 
@@ -312,19 +317,24 @@ class ExecutionEngine:
 
             # Update Cache
             history_key = self._compute_history_hash(
-                node.trace_history + ([input_value] if input_value is not None else [])
+                node.trace_history + ([input_value] if input_value is not self._NO_INPUT else [])
             )
             self._cache[history_key] = (current_score, last_signal, is_done, final_result)
 
+            # Prepare metadata
+            node_metadata = current_metadata.copy()
+            if is_done:
+                node_metadata["result"] = final_result
+
             # Create Child Node
             child = SearchNode(
-                trace_history=node.trace_history + [input_value] if input_value is not None else [],
+                trace_history=node.trace_history + [input_value] if input_value is not self._NO_INPUT else [],
                 score=current_score,
-                depth=node.depth + 1 if input_value is not None else node.depth,
+                depth=node.depth + 1 if input_value is not self._NO_INPUT else node.depth,
                 parent_id=node.node_id,
                 is_terminal=is_done,
-                action_taken=str(input_value) if input_value is not None else "<auto>",
-                metadata={"result": final_result} if is_done else {},
+                action_taken=str(input_value) if input_value is not self._NO_INPUT else "<auto>",
+                metadata=node_metadata,
                 machine_state=machine.save()
                 if not is_done
                 else None,  # Only save state if not terminal
@@ -334,13 +344,14 @@ class ExecutionEngine:
         # --- LEGACY GENERATOR PATH (O(N) Replay) ---
         # We maintain a stack of generators to support nested agents
         # For this path, we need input_value in replay_history
-        if input_value is not None:
+        if input_value is not self._NO_INPUT:
             replay_history.append(input_value)
 
         gen_stack = [agent_instance]
         current_gen = gen_stack[-1]
 
         current_score = 0.0
+        current_metadata = {}  # Capture metadata from signals
         last_signal = None
         is_done = False
         final_result = None
@@ -382,6 +393,8 @@ class ExecutionEngine:
                 # 1. Handle Scores
                 while isinstance(signal, ScoreSignal):
                     current_score += signal.value
+                    if signal.context:
+                        current_metadata.update(signal.context)
                     signal = advance_generator(None)
 
                 # 2. Inject stored input
@@ -397,6 +410,8 @@ class ExecutionEngine:
                 # Consume scores
                 while isinstance(signal, ScoreSignal):
                     current_score += signal.value
+                    if signal.context:
+                        current_metadata.update(signal.context)
                     signal = advance_generator(None)
 
                 if isinstance(signal, Effect):
@@ -491,17 +506,22 @@ class ExecutionEngine:
         history_key = self._compute_history_hash(current_history)
         self._cache[history_key] = (current_score, last_signal, is_done, final_result)
 
+        # Prepare metadata
+        node_metadata = current_metadata.copy()
+        if is_done:
+            node_metadata["result"] = final_result
+
         # Create Child Node
         child = SearchNode(
             trace_history=current_history,
             score=current_score,
             depth=node.depth + 1
-            if input_value is not None
+            if input_value is not self._NO_INPUT
             else node.depth,  # Depth increments on *choices*? Or steps? Let's say choices.
             parent_id=node.node_id,
             is_terminal=is_done,
-            action_taken=str(input_value) if input_value is not None else "<auto>",
-            metadata={"result": final_result} if is_done else {},
+            action_taken=str(input_value) if input_value is not self._NO_INPUT else "<auto>",
+            metadata=node_metadata,
         )
 
         return child, last_signal

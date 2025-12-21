@@ -573,6 +573,36 @@ class CPSCompiler(ast.NodeTransformer):
             else:
                 self.current_stmts.append(res)
 
+    def visit_Return(self, node):
+        # Handle return statement
+        # 1. Evaluate return value
+        ret_val = self.visit(node.value) if node.value else ast.Constant(value=None)
+        
+        # 2. Set result and done
+        self.current_stmts.append(
+            ast.Assign(
+                targets=[
+                    ast.Attribute(
+                        value=ast.Name(id="self", ctx=ast.Load()), attr="_result", ctx=ast.Store()
+                    )
+                ],
+                value=ret_val,
+            )
+        )
+        self.current_stmts.append(
+            ast.Assign(
+                targets=[
+                    ast.Attribute(
+                        value=ast.Name(id="self", ctx=ast.Load()), attr="_done", ctx=ast.Store()
+                    )
+                ],
+                value=ast.Constant(value=True),
+            )
+        )
+        
+        # 3. Return None (signal done)
+        self.current_stmts.append(ast.Return(value=ast.Constant(value=None)))
+
     def visit_If(self, node):
         # 1. Visit test
         test = self.visit(node.test)

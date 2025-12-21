@@ -26,7 +26,7 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from encompass import branchpoint, record_score
+from encompass import branchpoint, record_score, compile, effect
 from encompass.llm.ollama import OllamaModel
 from problems import CodingProblem, get_problems
 
@@ -87,7 +87,8 @@ def compile_function(code: str, func_name: str) -> Tuple[Optional[Callable], str
 # ENCOMPASS AGENT - Linear control flow, no state machine!
 # ============================================================================
 
-async def solve_problem(llm: OllamaModel, problem: CodingProblem, max_attempts: int = 3) -> Tuple[str, float, bool]:
+@compile
+def solve_problem(llm: OllamaModel, problem: CodingProblem, max_attempts: int = 3) -> Tuple[str, float, bool]:
     """Solve a coding problem with Reflexion.
     
     With EnCompass:
@@ -104,23 +105,33 @@ async def solve_problem(llm: OllamaModel, problem: CodingProblem, max_attempts: 
         description=problem.description,
         signature=problem.function_signature
     )
-    response = await llm.generate(prompt, max_tokens=1024)
+    # Use effect to call async llm.generate
+    response = effect(llm.generate, prompt, max_tokens=1024)
     code = clean_code(response)
     
     # Test and iterate (Reflexion loop)
+    accuracy = 0.0
     for attempt in range(max_attempts):
-        func, error = compile_function(code, problem.function_name)
+        compilation_result = compile_function(code, problem.function_name)
+        func = compilation_result[0]
+        error = compilation_result[1]
         
         if func is None:
             test_results = f"Compilation error: {error}"
             accuracy = 0.0
         else:
-            accuracy, correct, total = problem.validate(func)
+            validation_result = problem.validate(func)
+            accuracy = validation_result[0]
+            correct = validation_result[1]
+            total = validation_result[2]
             
             if accuracy == 1.0:
-                record_score(accuracy * 100)
+                record_score(accuracy * 100, context={"result": (code, accuracy, True)})
                 print(f"    ✓ Solved! ({correct}/{total} tests passed)")
                 return code, accuracy, True
+            
+            # Record partial score for this attempt
+            record_score(accuracy * 100, context={"result": (code, accuracy, False)})
             
             # Format test results for reflection
             test_results = f"{correct}/{total} tests passed"
@@ -134,11 +145,11 @@ async def solve_problem(llm: OllamaModel, problem: CodingProblem, max_attempts: 
                 code=code,
                 test_results=test_results
             )
-            response = await llm.generate(improve_prompt, max_tokens=1024)
+            response = effect(llm.generate, improve_prompt, max_tokens=1024)
             code = clean_code(response)
     
     # Record final score
-    record_score(accuracy * 100)
+    record_score(accuracy * 100, context={"result": (code, accuracy, False)})
     print(f"    Partial: {accuracy*100:.0f}%")
     
     return code, accuracy, False
@@ -147,14 +158,12 @@ async def solve_problem(llm: OllamaModel, problem: CodingProblem, max_attempts: 
 async def run_reflexion(
     model: str = "qwen2.5:32b",
     output_dir: Path = None,
+    strategy_name: str = "beam",
+    iterations: int = 10,
 ) -> dict:
     """Run the EnCompass Reflexion agent.
     
-    Dramatically simpler than base_reflexion_agent.py:
-    - No ReflexionState enum
-    - No ProblemState/AgentState dataclasses
-    - No step_* functions
-    - Just linear, sequential code!
+    Now properly uses the EnCompass runtime and search strategies!
     """
     base_dir = Path(__file__).parent
     
@@ -167,6 +176,7 @@ async def run_reflexion(
     print("ENCOMPASS REFLEXION AGENT (With EnCompass)")
     print(f"{'='*60}")
     print(f"Model: {model}")
+    print(f"Strategy: {strategy_name}")
     print(f"Output: {output_dir}")
     print(f"Lines of code in this agent: ~140 (vs ~400 for base agent)")
     print()
@@ -174,18 +184,75 @@ async def run_reflexion(
     llm = OllamaModel(model=model, temperature=0.3)
     problems = get_problems()
     
+    # Initialize Engine
+    from runtime.engine import ExecutionEngine
+    from search.strategies import BeamSearch, MCTS
+    from search.ab_mcts import ABMCTS
+    from encompass import compile
+    
+    engine = ExecutionEngine()
+    
+    # Compile the agent function
+    # We need to wrap it to pass arguments
+    # solve_problem is already compiled, so calling it returns a machine instance.
+    # Sampler Adapter
+    async def llm_sampler(node, metadata):
+        if metadata and "options" in metadata:
+            return metadata["options"]
+        # For open-ended generation, we return a single None to allow the agent to proceed
+        # and generate its own unique response (since LLM is stochastic).
+        # AB-MCTS will call this repeatedly to generate new branches.
+        return [None]
+
+    # Select Strategy
+    def get_strategy():
+        if strategy_name == "beam":
+            return BeamSearch(store=None, engine=engine, sampler=llm_sampler, width=3)
+        elif strategy_name == "mcts":
+            return MCTS(store=None, engine=engine, sampler=llm_sampler, iterations=iterations)
+        elif strategy_name == "ab-mcts":
+            return ABMCTS(store=None, engine=engine, sampler=llm_sampler, iterations=iterations)
+        else:
+            raise ValueError(f"Unknown strategy: {strategy_name}")
+
     results = {
         "model": model,
         "agent": "encompass",
+        "strategy": strategy_name,
         "agent_lines": 140,
         "problems": [],
         "solved_count": 0,
         "failed_count": 0,
     }
     
-    # Simple loop - no state machine needed!
     for problem in problems:
-        code, accuracy, solved = await solve_problem(llm, problem)
+        print(f"  Solving '{problem.name}' with {strategy_name}...")
+        strategy = get_strategy()
+        
+        # Create a partial for the specific problem
+        # The strategy expects a factory that returns a generator/coroutine
+        def factory():
+            return solve_problem(llm, problem, max_attempts=3)
+            
+        # Run Search
+        search_results = await strategy.search(factory)
+        
+        # Get best result
+        if not search_results:
+            print("    No results found.")
+            code = ""
+            accuracy = 0.0
+            solved = False
+        else:
+            best_node = search_results[0] # Sorted by score
+            if "result" in best_node.metadata:
+                code, accuracy, solved = best_node.metadata["result"]
+            else:
+                # Should not happen if search found a solution or finished
+                print(f"    Warning: Best node missing result. Node: {best_node.node_id}, Score: {best_node.score}, Depth: {best_node.depth}, Metadata Keys: {list(best_node.metadata.keys())}")
+                code = ""
+                accuracy = 0.0
+                solved = False
         
         if solved:
             results["solved_count"] += 1
@@ -214,6 +281,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="EnCompass Reflexion Agent")
     parser.add_argument("--model", default="qwen2.5:32b", help="Ollama model name")
+    parser.add_argument("--strategy", default="beam", help="Search strategy (beam, mcts, ab-mcts)")
+    parser.add_argument("--iterations", type=int, default=10, help="Search iterations")
     args = parser.parse_args()
     
-    results = asyncio.run(run_reflexion(model=args.model))
+    results = asyncio.run(run_reflexion(model=args.model, strategy_name=args.strategy, iterations=args.iterations))

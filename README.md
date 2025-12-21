@@ -89,6 +89,20 @@ strategy = MCTS(iterations=100, exploration=1.4)
 results = await strategy.search(agent)
 ```
 
+**Adaptive Branching MCTS (AB-MCTS)**
+Implements the **TreeQuest** algorithm (Inoue et al., 2025). Uses Thompson Sampling with Bayesian posteriors (Normal-Inverse-Gamma) to adaptively decide between exploring wider or deeper.
+```python
+from encompass.search# Configure AB-MCTS with custom priors and sharing policy
+config = ABMCTSConfig(
+    iterations=50,
+    score_type="gaussian",
+    belief_sharing="pooled", # "independent" or "pooled"
+    prior_mean=0.5,
+    prior_kappa=1.0
+)tegy = ABMCTS(config=config)
+results = await strategy.search(agent)
+```
+
 **Best-First Search**
 Prioritizes nodes based on a heuristic value function.
 ```python
@@ -186,6 +200,10 @@ python run_benchmark.py --benchmark reflexion --strategy beam --real-llm --model
 
 # ARC (Hypothesis Search)
 python run_benchmark.py --benchmark arc --strategy beam --real-llm --model qwen2.5:32b --width 3
+
+# LiveCodeBench (TreeQuest / AB-MCTS)
+# Evaluates code generation on partial update problems using AB-MCTS
+python benchmarks/ab_mcts_benchmark.py --model qwen2.5:32b --iterations 10
 ```
 
 ### Deep Search Validation

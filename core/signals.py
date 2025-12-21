@@ -55,7 +55,7 @@ class ScoreSignal(ControlSignal):
     """
 
     value: float
-    context: str = ""
+    context: Any = ""
 
 
 @dataclass(frozen=True)
@@ -108,7 +108,7 @@ def branchpoint(name: str, **metadata) -> BranchPoint:
     return BranchPoint(name=name, metadata=metadata)
 
 
-def record_score(value: float, context: str = "") -> ScoreSignal:
+def record_score(value: float, context: Any = "") -> ScoreSignal:
     return ScoreSignal(value=value, context=context)
 
 
