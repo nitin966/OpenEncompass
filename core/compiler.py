@@ -127,6 +127,34 @@ class AgentMachine(ControlSignal):
             self._result = state["_result"]
             self._stack = state.get("_stack", [])
 
+    def _get(self, key: str):
+        """
+        Get a variable from context, wrapping mutable values in CoW proxies.
+        
+        This ensures that list/dict mutations trigger copy-on-write,
+        maintaining isolation between branches.
+        """
+        from core.cow_proxy import wrap_mutable
+        
+        value = self._ctx[key]
+        
+        def ctx_setter(k: str, new_val) -> None:
+            self._ctx = self._ctx.set(k, new_val)
+        
+        return wrap_mutable(value, key, ctx_setter)
+    
+    def _set(self, key: str, value) -> None:
+        """
+        Set a value in the context, automatically unwrapping CoW proxies.
+        
+        This ensures _ctx only ever holds plain Python objects, preventing
+        proxy aliasing leaks where y = x would store a mutable proxy.
+        """
+        # Unwrap CoW proxies before storing
+        if hasattr(value, "unwrap"):
+            value = value.unwrap()
+        self._ctx = self._ctx.set(key, value)
+
 
 class CPSCompiler(ast.NodeTransformer):
     """
@@ -264,24 +292,13 @@ class CPSCompiler(ast.NodeTransformer):
         
         for t in node.targets:
             if isinstance(t, ast.Name) and t.id in self.varnames:
-                # self._ctx = self._ctx.set('x', temp)
+                # self._set('x', temp) - auto-unwraps CoW proxies
                 self.current_stmts.append(
-                    ast.Assign(
-                        targets=[
-                            ast.Attribute(
-                                value=ast.Name(id="self", ctx=ast.Load()),
-                                attr="_ctx",
-                                ctx=ast.Store()
-                            )
-                        ],
+                    ast.Expr(
                         value=ast.Call(
                             func=ast.Attribute(
-                                value=ast.Attribute(
-                                    value=ast.Name(id="self", ctx=ast.Load()),
-                                    attr="_ctx",
-                                    ctx=ast.Load()
-                                ),
-                                attr="set",
+                                value=ast.Name(id="self", ctx=ast.Load()),
+                                attr="_set",
                                 ctx=ast.Load()
                             ),
                             args=[ast.Constant(value=t.id), temp_node],
@@ -290,8 +307,75 @@ class CPSCompiler(ast.NodeTransformer):
                     )
                 )
             else:
-                # Normal assignment: t = temp
-                self.current_stmts.append(ast.Assign(targets=[t], value=temp_node))
+                # Handle Subscript targets like data["y"] = value
+                # Need to rewrite the subscript's value (e.g., data -> self._get('data'))
+                if isinstance(t, ast.Subscript):
+                    # Rewrite the subscript's value (the base object)
+                    new_value = self.visit(t.value)
+                    new_slice = self.visit(t.slice) if hasattr(t, 'slice') else t.slice
+                    new_target = ast.Subscript(
+                        value=new_value,
+                        slice=new_slice,
+                        ctx=ast.Store()
+                    )
+                    self.current_stmts.append(ast.Assign(targets=[new_target], value=temp_node))
+                elif isinstance(t, ast.Attribute):
+                    # Handle attribute targets like obj.x = value
+                    new_value = self.visit(t.value)
+                    new_target = ast.Attribute(
+                        value=new_value,
+                        attr=t.attr,
+                        ctx=ast.Store()
+                    )
+                    self.current_stmts.append(ast.Assign(targets=[new_target], value=temp_node))
+                elif isinstance(t, (ast.Tuple, ast.List)):
+                    # Handle tuple/list unpacking: x, y = value
+                    # Unpack each element and store in _ctx
+                    for i, elt in enumerate(t.elts):
+                        # temp[i]
+                        indexed_value = ast.Subscript(
+                            value=temp_node,
+                            slice=ast.Constant(value=i),
+                            ctx=ast.Load()
+                        )
+                        if isinstance(elt, ast.Name) and elt.id in self.varnames:
+                            # self._set('elt_name', temp[i]) - auto-unwraps CoW proxies
+                            self.current_stmts.append(
+                                ast.Expr(
+                                    value=ast.Call(
+                                        func=ast.Attribute(
+                                            value=ast.Name(id="self", ctx=ast.Load()),
+                                            attr="_set",
+                                            ctx=ast.Load()
+                                        ),
+                                        args=[ast.Constant(value=elt.id), indexed_value],
+                                        keywords=[]
+                                    )
+                                )
+                            )
+                        elif isinstance(elt, (ast.Tuple, ast.List)):
+                            # Nested unpacking - create intermediate temp and recurse
+                            nested_temp = f"_unpack_{self.current_state}_{i}"
+                            self.current_stmts.append(
+                                ast.Assign(
+                                    targets=[ast.Name(id=nested_temp, ctx=ast.Store())],
+                                    value=indexed_value
+                                )
+                            )
+                            # Create a synthetic Assign node to recurse
+                            nested_assign = ast.Assign(
+                                targets=[elt],
+                                value=ast.Name(id=nested_temp, ctx=ast.Load())
+                            )
+                            self.visit_Assign(nested_assign)
+                        else:
+                            # Other targets (underscore _, etc.) - assign normally
+                            self.current_stmts.append(
+                                ast.Assign(targets=[elt], value=indexed_value)
+                            )
+                else:
+                    # Normal assignment: t = temp
+                    self.current_stmts.append(ast.Assign(targets=[t], value=temp_node))
 
     def visit_Global(self, node):
         # Preserve global declarations
@@ -303,45 +387,36 @@ class CPSCompiler(ast.NodeTransformer):
 
     def visit_AugAssign(self, node):
         # Handle augmented assignments like x += 1
-        # If x is a local variable (in varnames), rewrite to self._ctx = self._ctx.set('x', self._ctx['x'] + value)
-        # Otherwise, keep as is (for globals)
+        # If x is a local variable (in varnames), rewrite to self._ctx = self._ctx.set('x', self._get('x') + value)
+        # Using _get() ensures CoW proxy wrapping for mutable values
         
         # Evaluate value (handles yields recursively)
         value = self.visit(node.value)
 
         if isinstance(node.target, ast.Name) and node.target.id in self.varnames:
-            # Rewrite to self._ctx = self._ctx.set('x', self._ctx['x'] op value)
+            # Rewrite to self._ctx = self._ctx.set('x', self._get('x') op value)
             
-            # 1. Read current value: self._ctx['x']
-            current_val = ast.Subscript(
-                value=ast.Attribute(
-                    value=ast.Name(id="self", ctx=ast.Load()), attr="_ctx", ctx=ast.Load()
+            # 1. Read current value via _get() for CoW proxy support: self._get('x')
+            current_val = ast.Call(
+                func=ast.Attribute(
+                    value=ast.Name(id="self", ctx=ast.Load()),
+                    attr="_get",
+                    ctx=ast.Load(),
                 ),
-                slice=ast.Constant(value=node.target.id),
-                ctx=ast.Load(),
+                args=[ast.Constant(value=node.target.id)],
+                keywords=[],
             )
             
             # 2. Compute new value: current op value
             new_val = ast.BinOp(left=current_val, op=node.op, right=value)
             
-            # 3. Update context: self._ctx = self._ctx.set('x', new_val)
+            # 3. Update context: self._set('x', new_val) - auto-unwraps CoW proxies
             self.current_stmts.append(
-                ast.Assign(
-                    targets=[
-                        ast.Attribute(
-                            value=ast.Name(id="self", ctx=ast.Load()),
-                            attr="_ctx",
-                            ctx=ast.Store()
-                        )
-                    ],
+                ast.Expr(
                     value=ast.Call(
                         func=ast.Attribute(
-                            value=ast.Attribute(
-                                value=ast.Name(id="self", ctx=ast.Load()),
-                                attr="_ctx",
-                                ctx=ast.Load()
-                            ),
-                            attr="set",
+                            value=ast.Name(id="self", ctx=ast.Load()),
+                            attr="_set",
                             ctx=ast.Load()
                         ),
                         args=[ast.Constant(value=node.target.id), new_val],
@@ -1309,14 +1384,17 @@ class CPSCompiler(ast.NodeTransformer):
         )
 
     def visit_Name(self, node):
-        # Rewrite variable reads: x -> self._ctx['x']
+        # Rewrite variable reads: x -> self._get('x')
+        # Using _get() instead of _ctx['x'] to enable CoW wrapping of mutable values
         if isinstance(node.ctx, ast.Load) and node.id in self.varnames:
-            return ast.Subscript(
-                value=ast.Attribute(
-                    value=ast.Name(id="self", ctx=ast.Load()), attr="_ctx", ctx=ast.Load()
+            return ast.Call(
+                func=ast.Attribute(
+                    value=ast.Name(id="self", ctx=ast.Load()),
+                    attr="_get",
+                    ctx=ast.Load(),
                 ),
-                slice=ast.Constant(value=node.id),
-                ctx=ast.Load(),
+                args=[ast.Constant(value=node.id)],
+                keywords=[],
             )
         return node
 
